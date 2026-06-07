@@ -23,6 +23,9 @@ def make_jpeg(
     camera: str = "TestCam",
     lens: str = "TestLens",
     sharp: bool = True,
+    shutter: tuple[int, int] | None = None,
+    aperture: tuple[int, int] | None = None,
+    gps: tuple[float, float] | None = None,
 ) -> Path:
     arr = _sharp_array() if sharp else _blurred_array()
     img = Image.fromarray(arr, mode="RGB")
@@ -31,7 +34,25 @@ def make_jpeg(
     exif_dict["Exif"][piexif.ExifIFD.LensModel] = lens.encode()
     if captured:
         exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = captured.encode()
+    if shutter:
+        exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = shutter
+    if aperture:
+        exif_dict["Exif"][piexif.ExifIFD.FNumber] = aperture
+    if gps:
+        lat, lon = gps
+        exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = _decimal_to_dms(abs(lat))
+        exif_dict["GPS"][piexif.GPSIFD.GPSLatitudeRef] = b"N" if lat >= 0 else b"S"
+        exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = _decimal_to_dms(abs(lon))
+        exif_dict["GPS"][piexif.GPSIFD.GPSLongitudeRef] = b"E" if lon >= 0 else b"W"
     exif_bytes = piexif.dump(exif_dict)
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(path, "jpeg", exif=exif_bytes)
     return path
+
+
+def _decimal_to_dms(value: float) -> list[tuple[int, int]]:
+    degrees = int(value)
+    minutes_float = (value - degrees) * 60
+    minutes = int(minutes_float)
+    seconds = (minutes_float - minutes) * 60
+    return [(degrees, 1), (minutes, 1), (round(seconds * 100), 100)]

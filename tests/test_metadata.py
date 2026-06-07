@@ -1,3 +1,5 @@
+import pytest
+
 from phota.metadata import extract_metadata
 from tests.fixtures import make_jpeg
 
@@ -21,3 +23,22 @@ def test_missing_exif_time_falls_back_to_mtime(photo_dir):
     meta = extract_metadata(str(p), fallback_mtime=0.0)
     assert meta["captured_approx"] is True
     assert meta["captured_at"] == "1970-01-01T00:00:00"
+
+
+def test_extracts_shutter_speed(photo_dir):
+    p = make_jpeg(photo_dir / "shutter.jpg", shutter=(1, 250))
+    meta = extract_metadata(str(p), fallback_mtime=0.0)
+    assert meta["shutter"] == "1/250"
+
+
+def test_extracts_aperture(photo_dir):
+    p = make_jpeg(photo_dir / "aperture.jpg", aperture=(28, 10))
+    meta = extract_metadata(str(p), fallback_mtime=0.0)
+    assert meta["aperture"] == "f/2.8"
+
+
+def test_extracts_gps_coordinates(photo_dir):
+    p = make_jpeg(photo_dir / "gps.jpg", gps=(37.7749, -122.4194))
+    meta = extract_metadata(str(p), fallback_mtime=0.0)
+    assert meta["gps_lat"] == pytest.approx(37.7749, abs=1e-3)
+    assert meta["gps_lon"] == pytest.approx(-122.4194, abs=1e-3)
