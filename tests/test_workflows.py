@@ -20,6 +20,25 @@ def test_cull_keeps_sharpest_per_series():
     assert kept == {"b", "c"}
 
 
+def test_cull_keeps_each_unseriesed_photo():
+    from phota.workflows import cull
+    photos = [
+        Photo(id="a", path="/x/a.jpg", filename="a.jpg", kind="jpeg", series_id=None, sharpness=1.0),
+        Photo(id="b", path="/x/b.jpg", filename="b.jpg", kind="jpeg", series_id=None, sharpness=2.0),
+    ]
+    plan = cull(photos, out_dir="/out")
+    assert {op.photo_id for op in plan.ops} == {"a", "b"}  # neither dropped
+
+
+def test_find_before_is_inclusive_of_whole_day():
+    from phota.workflows import find as wfind
+    photos = [
+        Photo(id="a", path="/x/a.jpg", filename="a.jpg", kind="jpeg",
+              captured_at="2025-12-18T08:00:00"),
+    ]
+    assert [p.id for p in wfind(photos, before="2025-12-18")] == ["a"]
+
+
 def test_organize_by_date_builds_dated_paths():
     photos = [_p("a", 0, 100.0, captured="2025-12-18T00:15:00")]
     plan = organize(photos, by="date", out_dir="/out")

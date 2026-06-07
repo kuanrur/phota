@@ -28,15 +28,16 @@ def apply_plan(plan: Plan, mode: str = "copy") -> dict:
         if dst.exists():
             raise FileExistsError(f"refusing to overwrite {dst}")
         dst.parent.mkdir(parents=True, exist_ok=True)
-        if mode == "copy":
+        action = "move" if mode == "move" else op.action
+        if action == "copy":
             shutil.copy2(src, dst)
-        elif mode == "symlink":
+        elif action == "symlink":
             dst.symlink_to(src.resolve())
-        elif mode == "move":
+        elif action == "move":
             shutil.move(str(src), str(dst))
         else:
-            raise ValueError(f"unknown mode {mode}")
-        manifest["ops"].append({"action": mode, "src": str(src), "dst": str(dst)})
+            raise ValueError(f"unknown action {action}")
+        manifest["ops"].append({"action": action, "src": str(src), "dst": str(dst)})
     return manifest
 
 

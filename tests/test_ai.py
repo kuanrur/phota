@@ -36,6 +36,18 @@ def test_semantic_match_filters_by_tags(monkeypatch):
     assert ids == {"a"}
 
 
+def test_analyze_error_returns_none(monkeypatch):
+    import phota.ai as ai
+    monkeypatch.setattr(ai, "_HAS_KEY", True)
+    def boom(path):
+        raise RuntimeError("api exploded")
+    monkeypatch.setattr(ai, "_analyze_image", boom)
+    from phota.models import Photo
+    p = Photo(id="z", path="/x/z.jpg", filename="z.jpg", kind="jpeg")
+    out = ai.rank_with_ai([p])
+    assert out[0]._aesthetic == 0.0
+
+
 def test_no_api_key_degrades(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(ai, "_HAS_KEY", False)

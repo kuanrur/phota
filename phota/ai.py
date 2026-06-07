@@ -26,23 +26,26 @@ def _analyze_image(path: str) -> dict | None:
     Image.fromarray(gray).convert("RGB").save(buf, format="JPEG")
     b64 = base64.standard_b64encode(buf.getvalue()).decode()
 
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=_MODEL,
-        max_tokens=400,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image", "source": {
-                    "type": "base64", "media_type": "image/jpeg", "data": b64}},
-                {"type": "text", "text":
-                    "Return JSON only: {\"caption\": str, \"tags\": [str], "
-                    "\"subjects\": [str], \"aesthetic_score\": float 0..1}."},
-            ],
-        }],
-    )
-    text = msg.content[0].text
-    return json.loads(text)
+    try:
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model=_MODEL,
+            max_tokens=400,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": "image/jpeg", "data": b64}},
+                    {"type": "text", "text":
+                        "Return JSON only: {\"caption\": str, \"tags\": [str], "
+                        "\"subjects\": [str], \"aesthetic_score\": float 0..1}."},
+                ],
+            }],
+        )
+        text = msg.content[0].text
+        return json.loads(text)
+    except Exception:
+        return None
 
 
 def _cached_analysis(photo: Photo) -> dict | None:
@@ -59,7 +62,10 @@ def _cached_analysis(photo: Photo) -> dict | None:
             "subjects": json.loads(row["subjects"] or "[]"),
             "aesthetic_score": row["aesthetic_score"],
         }
-    result = _analyze_image(photo.path)
+    try:
+        result = _analyze_image(photo.path)
+    except Exception:
+        return None
     if result is None:
         return None
     idx.conn.execute(

@@ -8,9 +8,10 @@ from phota.models import Photo, Plan, PlanOp
 
 
 def _keeper_per_series(photos: list[Photo]) -> list[Photo]:
-    by_series: dict[int, list[Photo]] = defaultdict(list)
+    by_series: dict[object, list[Photo]] = defaultdict(list)
     for p in photos:
-        by_series[p.series_id].append(p)
+        key = p.series_id if p.series_id is not None else ("__noseries__", p.id)
+        by_series[key].append(p)
     keepers = []
     for series in by_series.values():
         best = max(
@@ -80,8 +81,10 @@ def find(
             continue
         if after and (p.captured_at or "") < after:
             continue
-        if before and (p.captured_at or "") > before:
-            continue
+        if before:
+            bound = before + "T23:59:59" if len(before) == 10 and "T" not in before else before
+            if (p.captured_at or "") > bound:
+                continue
         if ids is not None and p.id not in ids:
             continue
         out.append(p)

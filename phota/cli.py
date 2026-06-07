@@ -4,7 +4,6 @@ import typer
 
 from phota.engine import build_index
 from phota.index import Index
-from phota.models import Plan
 from phota.plan import apply_plan, load_plan, save_plan
 from phota import output, workflows
 
@@ -118,6 +117,9 @@ def find(
         from phota.ai import semantic_match
 
         ids = semantic_match(photos, query)
+        if ids is None:
+            typer.echo("semantic search unavailable: set ANTHROPIC_API_KEY")
+            raise typer.Exit()
     results = workflows.find(
         photos, camera=camera, lens=lens, after=after, before=before, ids=ids
     )
@@ -138,5 +140,23 @@ def apply(
     output.render_plan(plan)
     if not yes:
         typer.confirm(f"Apply {len(plan.ops)} op(s) in {mode} mode?", abort=True)
-    apply_plan(plan, mode=mode)
+    manifest = apply_plan(plan, mode=mode)
+    if mode == "move":
+        import json
+        from pathlib import Path
+
+        manifest_path = plan_path + ".manifest.json"
+        Path(manifest_path).write_text(json.dumps(manifest, indent=2))
+        typer.echo(f"manifest written to {manifest_path}")
     typer.echo("done")
+
+
+@app.command()
+def undo(manifest_path: str = typer.Argument(...)):
+    """Reverse a move applied earlier, using its manifest."""
+    import json
+    from pathlib import Path
+    from phota.plan import reverse_manifest
+    manifest = json.loads(Path(manifest_path).read_text())
+    reverse_manifest(manifest)
+    typer.echo("reversed")
