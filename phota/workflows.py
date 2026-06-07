@@ -13,7 +13,10 @@ def _keeper_per_series(photos: list[Photo]) -> list[Photo]:
         by_series[p.series_id].append(p)
     keepers = []
     for series in by_series.values():
-        best = max(series, key=lambda p: (p.sharpness or 0.0))
+        best = max(
+            series,
+            key=lambda p: (p.sharpness or 0.0, getattr(p, "_aesthetic", 0.0)),
+        )
         keepers.append(best)
     return keepers
 
