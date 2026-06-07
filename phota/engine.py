@@ -42,13 +42,15 @@ def build_index(directory) -> dict:
         idx.upsert_photo(photo)
         analyzed += 1
 
+    pruned = idx.prune({p.id for p in found})
+
     # Re-group over the full set so series ids stay consistent.
     all_photos = idx.all_photos()
     assign_series(all_photos)
     for p in all_photos:
         idx.set_series(p.id, p.series_id)
-    idx.conn.execute("DELETE FROM pairs")
+    idx.clear_pairs()
     for raw_id, jpeg_id in find_raw_jpeg_pairs(all_photos):
         idx.add_pair(raw_id, jpeg_id)
 
-    return {"scanned": len(found), "analyzed": analyzed, "skipped": skipped}
+    return {"scanned": len(found), "analyzed": analyzed, "skipped": skipped, "pruned": pruned}

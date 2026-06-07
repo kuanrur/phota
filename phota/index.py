@@ -83,3 +83,22 @@ class Index:
     def add_pair(self, raw_id: str, jpeg_id: str) -> None:
         self.conn.execute("INSERT INTO pairs (raw_id, jpeg_id) VALUES (?, ?)", (raw_id, jpeg_id))
         self.conn.commit()
+
+    def clear_pairs(self) -> None:
+        self.conn.execute("DELETE FROM pairs")
+        self.conn.commit()
+
+    def all_pairs(self) -> list[tuple[str, str]]:
+        rows = self.conn.execute("SELECT raw_id, jpeg_id FROM pairs").fetchall()
+        return [(r["raw_id"], r["jpeg_id"]) for r in rows]
+
+    def prune(self, keep_ids) -> int:
+        """Delete photo+ai rows whose id is not in keep_ids. Returns count removed."""
+        keep = set(keep_ids)
+        existing = [r["id"] for r in self.conn.execute("SELECT id FROM photos").fetchall()]
+        to_remove = [pid for pid in existing if pid not in keep]
+        for pid in to_remove:
+            self.conn.execute("DELETE FROM photos WHERE id=?", (pid,))
+            self.conn.execute("DELETE FROM ai WHERE photo_id=?", (pid,))
+        self.conn.commit()
+        return len(to_remove)
