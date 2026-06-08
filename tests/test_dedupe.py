@@ -18,6 +18,26 @@ def test_groups_identical_photos(photo_dir):
     assert names == {'a.jpg', 'b.jpg'}
 
 
+def test_group_keeper_is_sharpest(photo_dir):
+    # a and b are pixel-identical duplicates; force b to be sharper than a.
+    # The group must be ordered keeper-first (highest sharpness), so b leads.
+    make_jpeg(photo_dir / 'a.jpg', captured='2025:12:18 00:15:00', sharp=True)
+    make_jpeg(photo_dir / 'b.jpg', captured='2025:12:18 00:16:00', sharp=True)
+    build_index(photo_dir)
+    idx = Index()
+    by_name = {p.filename: p for p in idx.all_photos()}
+    idx.conn.execute(
+        'UPDATE photos SET sharpness=? WHERE id=?', (5.0, by_name['a.jpg'].id)
+    )
+    idx.conn.execute(
+        'UPDATE photos SET sharpness=? WHERE id=?', (99.0, by_name['b.jpg'].id)
+    )
+    idx.conn.commit()
+    g = find_duplicate_groups(Index())[0]
+    assert Index().get_photo(g[0]).filename == 'b.jpg'  # keeper = sharpest
+    assert Index().get_photo(g[1]).filename == 'a.jpg'
+
+
 def test_no_duplicates(photo_dir):
     make_jpeg(photo_dir / 'a.jpg', captured='2025:12:18 00:15:00', sharp=True)
     make_jpeg(photo_dir / 'c.jpg', captured='2025:12:18 00:17:00', sharp=False)
