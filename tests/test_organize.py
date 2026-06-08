@@ -28,3 +28,14 @@ def test_undo_restores_original_names(tmp_path):
     organize.undo_last(tmp_path)
     names = sorted(p.name for p in tmp_path.iterdir() if p.suffix == '.jpg')
     assert names == ['a.jpg', 'b.jpg']
+
+
+def test_sort_into_folder_moves_and_undo(tmp_path):
+    a = make_jpeg(tmp_path / 'a.jpg'); b = make_jpeg(tmp_path / 'b.jpg'); make_jpeg(tmp_path / 'c.jpg')
+    organize.sort_into_folder(tmp_path, 'Trip / 2025', [str(a), str(b)])
+    sub = tmp_path / 'Trip  2025'  # slashes stripped by _safe_name
+    assert (sub / 'a.jpg').exists() and (sub / 'b.jpg').exists()
+    assert not (tmp_path / 'a.jpg').exists()  # moved out of root
+    assert (tmp_path / 'c.jpg').exists()      # untouched
+    organize.undo_last(tmp_path)
+    assert (tmp_path / 'a.jpg').exists() and not (sub / 'a.jpg').exists()

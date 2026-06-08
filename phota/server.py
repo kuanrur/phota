@@ -33,6 +33,11 @@ class OrderBody(BaseModel):
     ordered_ids: list[str]
 
 
+class SortBody(BaseModel):
+    folder_name: str
+    ids: list[str]
+
+
 def reveal_in_finder(path):
     import subprocess
 
@@ -336,6 +341,17 @@ def create_app(folder: str | None = None) -> FastAPI:
         n = organize.apply_order(app.state.folder, paths)
         build_index(app.state.folder, db_path=app.state.db_path)
         return {"renamed": n}
+
+    @app.post("/api/sort")
+    def sort(body: SortBody):
+        idx = _index()
+        byid = {p.id: p for p in idx.all_photos()}
+        paths = [byid[i].path for i in body.ids if i in byid]
+        from phota import organize
+
+        n = organize.sort_into_folder(app.state.folder, body.folder_name, paths)
+        build_index(app.state.folder, db_path=app.state.db_path)
+        return {"moved": n, "folder": organize._safe_name(body.folder_name)}
 
     @app.post("/api/undo")
     def undo():
