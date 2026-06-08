@@ -55,3 +55,15 @@ export interface ExportResult {
 }
 
 export type AiProvider = 'claude' | 'gpt' | 'local'
+
+/** A folder currently open in a Finder window. */
+export interface FinderFolder {
+  path: string
+  name: string
+}
+
+/** A set of near-identical photos; `keeper` is the id to keep. */
+export interface DuplicateGroup {
+  ids: string[]
+  keeper: string
+}

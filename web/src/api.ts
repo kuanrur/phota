@@ -2,10 +2,12 @@ import type {
   AiProvider,
   AiStatus,
   Album,
+  DuplicateGroup,
   ExportMode,
   ExportResult,
   ExportScope,
   Filters,
+  FinderFolder,
   Library,
   Photo,
   Series,
@@ -122,4 +124,30 @@ export const api = {
     request<string[]>(`/api/search?q=${encodeURIComponent(q)}`),
 
   analyze: () => request<{ analyzed: number }>('/api/ai/analyze', { method: 'POST' }),
+
+  // ── Finder-folder cleanup controller ─────────────────────────
+
+  /** Folders currently open in Finder windows. */
+  finderFolders: () => request<FinderFolder[]>('/api/finder-folders'),
+
+  /** Adopt `path` as the active folder; (re)builds its index. */
+  openFolder: (path: string) =>
+    request<{ folder: string; count: number }>('/api/open-folder', json({ path })),
+
+  /** Sets of near-identical photos in the active folder. */
+  duplicates: () => request<DuplicateGroup[]>('/api/duplicates'),
+
+  /** Persist a new on-disk order by renaming 001_, 002_, … */
+  reorder: (orderedIds: string[]) =>
+    request<{ renamed: number }>('/api/reorder', json({ ordered_ids: orderedIds })),
+
+  /** Move `ids` into a subfolder of the active folder. */
+  sortInto: (folderName: string, ids: string[]) =>
+    request<{ moved: number; folder: string }>(
+      '/api/sort',
+      json({ folder_name: folderName, ids }),
+    ),
+
+  /** Undo the last reorder/sort. */
+  undo: () => request<{ undone: number }>('/api/undo', { method: 'POST' }),
 }

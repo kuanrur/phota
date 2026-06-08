@@ -62,3 +62,37 @@ export function CheckIcon({ className, size = 12 }: P) {
     </svg>
   )
 }
+
+export function ArrowLeft({ className, size = 13 }: P) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M19 12H5" />
+      <path d="m12 19-7-7 7-7" />
+    </svg>
+  )
+}
+
+export function UndoIcon({ className, size = 13 }: P) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M3 7v6h6" />
+      <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+    </svg>
+  )
+}
+
+export function FolderIcon({ className, size = 13 }: P) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z" />
+    </svg>
+  )
+}
+
+export function PlusIcon({ className, size = 13 }: P) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
