@@ -182,7 +182,22 @@ def create_app(folder: str | None = None) -> FastAPI:
 
         idx = _index()
         plan = exporter.build_export_plan(idx, scope, out_dir)
-        manifest = apply_plan(plan, mode=mode)
+        # Pre-validate BEFORE executing any op so a move never runs partway
+        # and leaves an irreversible, unrecorded mutation. Reject duplicate
+        # or pre-existing destinations with a clean 409 and zero filesystem
+        # mutation.
+        seen: set[str] = set()
+        for op in plan.ops:
+            if op.dst in seen or Path(op.dst).exists():
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"destination conflict: {op.dst}",
+                )
+            seen.add(op.dst)
+        try:
+            manifest = apply_plan(plan, mode=mode)
+        except (FileExistsError, ValueError) as e:
+            raise HTTPException(status_code=409, detail=str(e))
         result = {"count": len(plan.ops)}
         if mode == "move":
             mpath = str(Path(out_dir) / "export.manifest.json")

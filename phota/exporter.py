@@ -19,8 +19,18 @@ def build_export_plan(idx, scope, out_dir):
         photos = [p for p in idx.all_photos() if p.id in ids]
     else:
         raise ValueError(f"unknown scope {scope}")
-    ops = [
-        PlanOp("copy", p.path, str(Path(out_dir) / label / p.filename), p.id)
-        for p in photos
-    ]
+    dest_dir = Path(out_dir) / label
+    # Count basenames so we only disambiguate the ones that actually collide.
+    counts: dict[str, int] = {}
+    for p in photos:
+        counts[p.filename] = counts.get(p.filename, 0) + 1
+    ops = []
+    for p in photos:
+        if counts[p.filename] > 1:
+            stem = Path(p.filename).stem
+            ext = Path(p.filename).suffix
+            name = f"{stem}__{p.id[:8]}{ext}"
+        else:
+            name = p.filename
+        ops.append(PlanOp("copy", p.path, str(dest_dir / name), p.id))
     return Plan(name=f"export-{label}", ops=ops)
