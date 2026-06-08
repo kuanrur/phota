@@ -65,12 +65,42 @@ def sort_into_folder(folder, subfolder_name, paths):
 
 
 def undo_last(folder):
+    '''Reverse the last recorded operation. Two-phase and overwrite-safe.
+
+    Each op moves op['to'] back to op['from']. To stay safe we:
+      * skip ops whose 'to' no longer exists (already gone),
+      * refuse to clobber: if some 'from' target is occupied by a file that is
+        NOT itself one of our 'to' slots (i.e. a genuinely new/foreign file),
+        abort the whole undo before moving anything so we never leave a
+        partial restore,
+      * move two-phase (every 'to' -> unique temp, then temp -> 'from') so
+        chained moves (one op's 'to' == another op's 'from', e.g. colliding
+        stripped names) can't clobber each other.
+    '''
     mp = manifest_path(folder)
     if not mp.exists():
         return 0
     ops = json.loads(mp.read_text())['ops']
-    for op in reversed(ops):
-        if Path(op['to']).exists():
-            shutil.move(op['to'], op['from'])
+    # Only ops whose source still exists can be undone.
+    live = [op for op in ops if Path(op['to']).exists()]
+    to_slots = {os.path.abspath(op['to']) for op in live}
+    # Pre-pass: a 'from' target is a conflict only if it is occupied by
+    # something that is not one of the slots we are about to vacate.
+    for op in live:
+        dst = Path(op['from'])
+        if dst.exists() and os.path.abspath(str(dst)) not in to_slots:
+            raise FileExistsError(str(dst))
+    # Phase 1: vacate every 'to' into a unique temp.
+    temps = []
+    for i, op in enumerate(live):
+        src = Path(op['to'])
+        tmp = src.with_name('.phota_undo_tmp_%d_%s' % (i, src.name))
+        shutil.move(str(src), str(tmp))
+        temps.append((tmp, op['from']))
+    # Phase 2: restore each temp to its original location.
+    for tmp, dst in temps:
+        if Path(dst).exists():
+            raise FileExistsError(str(dst))
+        shutil.move(str(tmp), str(dst))
     mp.unlink()
-    return len(ops)
+    return len(live)
