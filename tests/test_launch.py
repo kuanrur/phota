@@ -74,3 +74,34 @@ def test_subcommands_still_present():
     out = CliRunner().invoke(app, ['--help']).stdout
     for cmd in ('scan', 'cull', 'organize', 'apply', 'open'):
         assert cmd in out
+
+
+def test_main_opens_directory_arg(monkeypatch, photo_dir):
+    import sys, os
+    import phota.cli as cli
+    seen = {}
+    monkeypatch.setattr(cli, 'launch', lambda folder=None, **kw: seen.update(folder=folder))
+    monkeypatch.setattr(sys, 'argv', ['phota', str(photo_dir)])
+    cli.main()
+    assert seen['folder'] == os.path.abspath(str(photo_dir))
+
+
+def test_main_no_args_opens_cwd(monkeypatch, tmp_path):
+    import sys, os
+    import phota.cli as cli
+    seen = {}
+    monkeypatch.setattr(cli, 'launch', lambda folder=None, **kw: seen.update(folder=folder))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, 'argv', ['phota'])
+    cli.main()
+    assert seen['folder'] == os.getcwd()
+
+
+def test_main_delegates_subcommands(monkeypatch):
+    import sys
+    import phota.cli as cli
+    seen = {}
+    monkeypatch.setattr(cli, 'app', lambda: seen.update(app=True))
+    monkeypatch.setattr(sys, 'argv', ['phota', 'status'])
+    cli.main()
+    assert seen.get('app') is True

@@ -212,3 +212,33 @@ def undo(manifest_path: str = typer.Argument(...)):
 def open(directory: str = typer.Argument(None)):
     """Open the phota control window on a folder (default: current dir)."""
     launch(directory)
+
+
+# Command names registered on the Typer app. A leading token matching one of
+# these dispatches to the CLI; a leading directory opens the window directly.
+_COMMANDS = {
+    "scan", "status", "series", "cull", "organize", "curate",
+    "edit-list", "find", "apply", "undo", "open",
+}
+
+
+def main() -> None:
+    """Console entry point.
+
+    `phota`              -> open the window on the current folder
+    `phota <dir>`        -> open the window on <dir>
+    `phota <command> ...`-> run the CLI subcommand
+    """
+    import sys
+
+    argv = sys.argv[1:]
+    if not argv:
+        launch(os.getcwd())
+        return
+    first = argv[0]
+    if first not in _COMMANDS and not first.startswith("-"):
+        candidate = os.path.abspath(os.path.expanduser(first))
+        if os.path.isdir(candidate):
+            launch(candidate)
+            return
+    app()
