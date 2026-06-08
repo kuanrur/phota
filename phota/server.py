@@ -257,4 +257,16 @@ def create_app(folder: str | None = None) -> FastAPI:
     def analyze():
         return {"analyzed": ai.analyze_library(_index())}
 
+    # Mount the built SPA LAST so it does not shadow the /api routes above.
+    # Conditional on the build existing so tests/dev without a build still run.
+    from fastapi.staticfiles import StaticFiles
+
+    _dist = Path(__file__).resolve().parent.parent / "web" / "dist"
+    if _dist.exists():
+        app.mount(
+            "/",
+            StaticFiles(directory=str(_dist), html=True),
+            name="spa",
+        )
+
     return app
