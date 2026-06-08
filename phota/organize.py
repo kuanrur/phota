@@ -68,19 +68,38 @@ def apply_order(folder, ordered_paths):
 
 def sort_into_folder(folder, subfolder_name, paths):
     '''Create folder/<subfolder_name> and move the given files into it.
-    Refuses to overwrite; records an undo manifest. Returns number moved.'''
+    Refuses to overwrite; records an undo manifest. Returns number moved.
+
+    Pre-validates BEFORE creating the subfolder or moving anything: two selected
+    files that share a basename (e.g. two IMG_0001.jpg from different subdirs,
+    or the same id sent twice) would collide on dest/<name>, so reject the whole
+    request with zero filesystem mutation. The move loop is wrapped in
+    try/finally so that if a move still fails mid-loop (e.g. a foreign file
+    already occupies a target), the manifest of moves completed so far is always
+    persisted before the exception propagates -- otherwise undo could not
+    recover the already-moved files.'''
     folder = Path(folder)
     dest = folder / _safe_name(subfolder_name)
+    srcs = [Path(p) for p in paths]
+    # Pre-validate duplicate basenames (mirror the /api/export pre-check) so the
+    # common collision is rejected before any filesystem mutation.
+    seen: set[str] = set()
+    for src in srcs:
+        if src.name in seen:
+            raise FileExistsError(str(dest / src.name))
+        seen.add(src.name)
     dest.mkdir(parents=True, exist_ok=True)
     ops = []
-    for src in paths:
-        src = Path(src)
-        target = dest / src.name
-        if target.exists():
-            raise FileExistsError(str(target))
-        shutil.move(str(src), str(target))
-        ops.append({'from': str(src), 'to': str(target)})
-    _write_manifest(folder, ops)
+    try:
+        for src in srcs:
+            target = dest / src.name
+            if target.exists():
+                raise FileExistsError(str(target))
+            shutil.move(str(src), str(target))
+            ops.append({'from': str(src), 'to': str(target)})
+    finally:
+        if ops:
+            _write_manifest(folder, ops)
     return len(ops)
 
 

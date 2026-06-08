@@ -78,6 +78,59 @@ def test_undo_is_all_or_nothing_on_conflict(tmp_path):
     assert a.read_text() == 'NEW_A'
 
 
+def test_sort_partial_failure_persists_manifest_and_undo_recovers(tmp_path):
+    # The selection has unique basenames (passes pre-validation) but a foreign
+    # file already occupies dest/b.jpg. a.jpg is moved first, then b.jpg raises
+    # FileExistsError mid-loop. The manifest of the completed move (a.jpg) MUST
+    # still be written so undo can recover the stranded file.
+    a = tmp_path / 'a.jpg'; b = tmp_path / 'b.jpg'
+    a.write_text('ORIG_A'); b.write_text('ORIG_B')
+    dest = tmp_path / 'trip'
+    dest.mkdir()
+    (dest / 'b.jpg').write_text('FOREIGN_B')  # pre-occupies the second target
+    with pytest.raises(FileExistsError):
+        organize.sort_into_folder(tmp_path, 'trip', [str(a), str(b)])
+    # a.jpg was moved into dest; the manifest recorded it so undo can recover it.
+    assert (dest / 'a.jpg').read_text() == 'ORIG_A'
+    assert not a.exists()
+    # The foreign file at dest/b.jpg is untouched; b.jpg never moved.
+    assert (dest / 'b.jpg').read_text() == 'FOREIGN_B'
+    assert b.read_text() == 'ORIG_B'
+    restored = organize.undo_last(tmp_path)
+    assert restored == 1
+    assert a.read_text() == 'ORIG_A'
+    assert not (dest / 'a.jpg').exists()
+
+
+def test_sort_rejects_duplicate_basenames_with_zero_mutation(tmp_path):
+    # Two selected photos share a basename (e.g. two IMG_0001.jpg from different
+    # subdirs). sort_into_folder must pre-validate and reject with NO filesystem
+    # mutation: no dest subfolder created, no file moved, no manifest written.
+    s1 = tmp_path / 's1'; s2 = tmp_path / 's2'
+    s1.mkdir(); s2.mkdir()
+    f1 = s1 / 'x.jpg'; f2 = s2 / 'x.jpg'
+    f1.write_text('FROM_S1'); f2.write_text('FROM_S2')
+    with pytest.raises(FileExistsError):
+        organize.sort_into_folder(tmp_path, 'trip', [str(f1), str(f2)])
+    # Nothing moved, no subfolder, no manifest.
+    assert f1.read_text() == 'FROM_S1'
+    assert f2.read_text() == 'FROM_S2'
+    assert not (tmp_path / 'trip').exists()
+    assert not organize.manifest_path(tmp_path).exists()
+
+
+def test_sort_rejects_duplicate_id_in_selection_with_zero_mutation(tmp_path):
+    # The UI sending the same path twice (duplicate id) is also a basename
+    # collision and must be rejected before any move.
+    a = tmp_path / 'a.jpg'
+    a.write_text('A')
+    with pytest.raises(FileExistsError):
+        organize.sort_into_folder(tmp_path, 'trip', [str(a), str(a)])
+    assert a.read_text() == 'A'
+    assert not (tmp_path / 'trip').exists()
+    assert not organize.manifest_path(tmp_path).exists()
+
+
 def test_apply_order_undo_preserves_colliding_stripped_names(tmp_path):
     # Two files whose names strip to the same base ('a.jpg').
     f1 = tmp_path / '001_a.jpg'; f2 = tmp_path / '002_a.jpg'

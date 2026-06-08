@@ -50,3 +50,19 @@ def test_open_calls_default_app(photo_dir, monkeypatch):
     pid = c.get('/api/photos').json()[0]['id']
     assert c.post(f'/api/open/{pid}').status_code == 200
     assert called['path'].endswith('.jpg')
+
+
+def test_sort_basename_collision_returns_409(photo_dir):
+    # Two photos that collide on dest/<name> must surface as a clean 409, not a
+    # 500. Build two same-basename files in different subdirs of the library.
+    s1 = photo_dir / 's1'; s2 = photo_dir / 's2'
+    make_jpeg(s1 / 'x.jpg', captured='2025:12:18 00:15:00', camera='X-T5')
+    make_jpeg(s2 / 'x.jpg', captured='2025:12:18 00:16:00', camera='X-T5')
+    build_index(photo_dir)
+    c = TestClient(create_app(str(photo_dir)))
+    ids = [p['id'] for p in c.get('/api/photos').json()]
+    r = c.post('/api/sort', json={'folder_name': 'trip', 'ids': ids})
+    assert r.status_code == 409
+    # Nothing was moved: both originals still present, no subfolder created.
+    assert (s1 / 'x.jpg').exists() and (s2 / 'x.jpg').exists()
+    assert not (photo_dir / 'trip').exists()

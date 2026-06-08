@@ -349,7 +349,10 @@ def create_app(folder: str | None = None) -> FastAPI:
         paths = [byid[i].path for i in body.ids if i in byid]
         from phota import organize
 
-        n = organize.sort_into_folder(app.state.folder, body.folder_name, paths)
+        try:
+            n = organize.sort_into_folder(app.state.folder, body.folder_name, paths)
+        except FileExistsError as e:
+            raise HTTPException(status_code=409, detail=f"destination conflict: {e}")
         build_index(app.state.folder, db_path=app.state.db_path)
         return {"moved": n, "folder": organize._safe_name(body.folder_name)}
 
