@@ -143,6 +143,17 @@ def create_app(folder: str | None = None) -> FastAPI:
             raise HTTPException(status_code=404)
         return FileResponse(t, media_type="image/jpeg")
 
+    @app.get("/api/full/{photo_id}")
+    def full(photo_id: str):
+        idx = _index()
+        p = idx.get_photo(photo_id)
+        if not p:
+            raise HTTPException(status_code=404)
+        t = thumbs.get_or_build_preview(p)
+        if not t:
+            raise HTTPException(status_code=404)
+        return FileResponse(t, media_type="image/jpeg")
+
     @app.post("/api/photos/{photo_id}/keep")
     def set_keep(photo_id: str, keep: bool | None = Body(None, embed=True)):
         idx = _index()

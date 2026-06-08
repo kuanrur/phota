@@ -45,3 +45,14 @@ def test_thumb_unknown_404(photo_dir):
 def test_series_endpoint(photo_dir):
     s = _client(photo_dir).get('/api/series').json()
     assert isinstance(s, list)
+
+
+def test_full_returns_jpeg(photo_dir):
+    c = _client(photo_dir)
+    pid = c.get('/api/photos').json()[0]['id']
+    r = c.get(f'/api/full/{pid}')
+    assert r.status_code == 200 and r.headers['content-type'] == 'image/jpeg'
+
+
+def test_full_unknown_404(photo_dir):
+    assert _client(photo_dir).get('/api/full/nope').status_code == 404

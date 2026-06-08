@@ -124,7 +124,7 @@ export function CullMode({ series, photosById, onKeep, onClose }: CullModeProps)
         {currentId && (
           <img
             key={currentId}
-            src={api.thumb(currentId)}
+            src={api.full(currentId)}
             alt={currentPhoto?.filename ?? ''}
             className="frame-crossfade max-h-full max-w-full object-contain"
             style={{

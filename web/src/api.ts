@@ -65,6 +65,8 @@ export const api = {
 
   thumb: (id: string) => `/api/thumb/${encodeURIComponent(id)}`,
 
+  full: (id: string) => `/api/full/${encodeURIComponent(id)}`,
+
   setKeep: (id: string, keep: boolean | null) =>
     request<{ ok: boolean }>(
       `/api/photos/${encodeURIComponent(id)}/keep`,
