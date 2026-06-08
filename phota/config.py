@@ -1,6 +1,7 @@
 from pathlib import Path
 
 # Index location. Overridable in tests via PHOTA_DB env var.
+import hashlib
 import json
 import os
 
@@ -10,6 +11,11 @@ def db_path() -> Path:
     if override:
         return Path(override)
     return Path.home() / ".phota" / "index.db"
+
+
+def library_db_path(folder):
+    h = hashlib.sha1(str(Path(folder).resolve()).encode()).hexdigest()[:16]
+    return Path.home() / ".phota" / "libraries" / h / "index.db"
 
 
 def config_path() -> Path:

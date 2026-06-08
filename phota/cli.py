@@ -1,13 +1,50 @@
 from __future__ import annotations
 
+import os
+
 import typer
 
 from phota.engine import build_index
 from phota.index import Index
 from phota.plan import apply_plan, load_plan, save_plan
+from phota.server import create_app
+from phota.config import library_db_path
 from phota import output, workflows
 
 app = typer.Typer(help="phota — customizable photo sorting")
+
+
+def launch(folder=None, open_browser=True, serve=True):
+    folder = os.path.abspath(folder or os.getcwd())
+    # Per-folder library; respect an explicit PHOTA_DB override (tests, power users).
+    if "PHOTA_DB" not in os.environ:
+        os.environ["PHOTA_DB"] = str(library_db_path(folder))
+    from phota.engine import build_index
+
+    build_index(folder)
+    fastapi_app = create_app(folder)
+    if serve:
+        import socket
+        import threading
+        import webbrowser
+
+        import uvicorn
+
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+        url = f"http://127.0.0.1:{port}"
+        if open_browser:
+            threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        uvicorn.run(fastapi_app, host="127.0.0.1", port=port)
+    return fastapi_app, folder
+
+
+@app.callback(invoke_without_command=True)
+def _default(ctx: typer.Context):
+    if ctx.invoked_subcommand is None:
+        launch(os.getcwd())
 
 
 def _load_photos() -> list:
@@ -160,3 +197,9 @@ def undo(manifest_path: str = typer.Argument(...)):
     manifest = json.loads(Path(manifest_path).read_text())
     reverse_manifest(manifest)
     typer.echo("reversed")
+
+
+@app.command()
+def open(directory: str = typer.Argument(None)):
+    """Open the phota control window on a folder (default: current dir)."""
+    launch(directory)
