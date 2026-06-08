@@ -16,9 +16,18 @@ app = typer.Typer(help="phota — customizable photo sorting")
 
 def launch(folder=None, open_browser=True, serve=True):
     folder = os.path.abspath(folder or os.getcwd())
-    # Per-folder library; respect an explicit PHOTA_DB override (tests, power users).
-    if "PHOTA_DB" not in os.environ:
-        os.environ["PHOTA_DB"] = str(library_db_path(folder))
+    # Per-folder library: each launch() points PHOTA_DB at the folder's own db so
+    # different folders never share state, even across consecutive launches in
+    # one process. A genuinely external PHOTA_DB (tests, power users) is one the
+    # launcher did not set itself; respect it and leave it untouched.
+    user_override = (
+        "PHOTA_DB" in os.environ
+        and os.environ.get("_PHOTA_DB_OWNER") != os.environ["PHOTA_DB"]
+    )
+    if not user_override:
+        p = str(library_db_path(folder))
+        os.environ["PHOTA_DB"] = p
+        os.environ["_PHOTA_DB_OWNER"] = p
     from phota.engine import build_index
 
     build_index(folder)
