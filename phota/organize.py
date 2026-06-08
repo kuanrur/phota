@@ -25,23 +25,43 @@ def _write_manifest(folder, ops):
 
 def apply_order(folder, ordered_paths):
     '''Rename the given files (absolute paths, in the desired order) to
-    001_<name>, 002_<name>, ... in their folder. Two-phase to avoid
-    collisions. Records an undo manifest. Returns number renamed.'''
+    001_<name>, 002_<name>, ... each within its OWN directory. Two-phase to
+    avoid collisions within the set. Refuses to overwrite a pre-existing
+    (foreign) file at any final target. Rolls back fully on any failure so the
+    folder is never left half-renamed. Records an undo manifest. Returns
+    number renamed.'''
     folder = Path(folder)
-    pad = max(3, len(str(len(ordered_paths))))
+    srcs = [Path(p) for p in ordered_paths]
+    # Pre-validate: every source must exist before we move anything.
+    for src in srcs:
+        if not src.exists():
+            raise FileNotFoundError(str(src))
+    pad = max(3, len(str(len(srcs))))
     ops = []
-    # phase 1: move to unique temp names
-    temps = []
-    for src in ordered_paths:
-        src = Path(src)
-        tmp = src.with_name('.phota_tmp_' + src.name)
-        shutil.move(str(src), str(tmp))
-        temps.append((tmp, src.name))
-    # phase 2: move temps to final NNN_<stripped name>
-    for i, (tmp, orig_name) in enumerate(temps, start=1):
-        final = folder / (str(i).zfill(pad) + '_' + _strip_prefix(orig_name))
-        shutil.move(str(tmp), str(final))
-        ops.append({'from': str(folder / orig_name), 'to': str(final)})
+    # phase 1: move to unique temp names (in each file's own directory)
+    temps = []  # list of (tmp_path, original_src_path)
+    try:
+        for src in srcs:
+            tmp = src.with_name('.phota_tmp_' + src.name)
+            shutil.move(str(src), str(tmp))
+            temps.append((tmp, src))
+        # phase 2: move temps to final NNN_<stripped name> in the same dir.
+        for i, (tmp, src) in enumerate(temps, start=1):
+            final = src.parent / (str(i).zfill(pad) + '_' + _strip_prefix(src.name))
+            # Never clobber a foreign file already occupying the final slot.
+            if final.exists():
+                raise FileExistsError(str(final))
+            shutil.move(str(tmp), str(final))
+            # Record the actual original absolute path so undo round-trips.
+            ops.append({'from': str(src), 'to': str(final)})
+    except BaseException:
+        # Roll back: undo any final moves, then restore every temp to source.
+        for op in reversed(ops):
+            shutil.move(op['to'], op['from'])
+        for tmp, src in temps:
+            if tmp.exists():
+                shutil.move(str(tmp), str(src))
+        raise
     _write_manifest(folder, ops)
     return len(ops)
 

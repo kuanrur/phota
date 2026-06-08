@@ -91,3 +91,44 @@ def test_apply_order_undo_preserves_colliding_stripped_names(tmp_path):
     organize.undo_last(tmp_path)
     assert (tmp_path / '001_a.jpg').read_text() == '001_a.jpg'
     assert (tmp_path / '002_a.jpg').read_text() == '002_a.jpg'
+
+
+def test_apply_order_refuses_to_overwrite_foreign_final_target(tmp_path):
+    # A pre-existing file already occupies the final NNN_ slot that the
+    # reordered file would land on. Reordering must NOT clobber it.
+    keep = tmp_path / '001_a.jpg'; mover = tmp_path / '002_a.jpg'
+    keep.write_text('FIRST A - keep me'); mover.write_text('SECOND A')
+    # Reorder just 002_a.jpg to position 1 -> final name strips to a.jpg ->
+    # re-prefixes to 001_a.jpg, which already exists as a foreign file.
+    with pytest.raises(FileExistsError):
+        organize.apply_order(tmp_path, [str(mover)])
+    # Both files survive with their original contents; the folder is untouched.
+    assert keep.read_text() == 'FIRST A - keep me'
+    assert mover.read_text() == 'SECOND A'
+    # No temp files left stranded, no manifest written.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ['001_a.jpg', '002_a.jpg']
+
+
+def test_apply_order_rolls_back_on_missing_path(tmp_path):
+    # A path in the middle of the list is missing. apply_order must roll back
+    # already-moved files and leave the folder exactly as it was, no manifest.
+    a = make_jpeg(tmp_path / 'a.jpg'); b = make_jpeg(tmp_path / 'b.jpg')
+    missing = tmp_path / 'missing.jpg'
+    with pytest.raises(FileNotFoundError):
+        organize.apply_order(tmp_path, [str(a), str(missing), str(b)])
+    names = sorted(p.name for p in tmp_path.iterdir())
+    assert names == ['a.jpg', 'b.jpg']  # no .phota_tmp_* leftovers, no manifest
+
+
+def test_apply_order_keeps_subfolder_files_in_place_and_undo_round_trips(tmp_path):
+    # A photo nested in a subfolder must be prefixed in place (in its own
+    # directory), not relocated up into the parent. Undo must round-trip it
+    # back to the subfolder, leaving the subfolder populated.
+    sub = tmp_path / 'sub'; sub.mkdir()
+    x = sub / 'x.jpg'; x.write_text('X')
+    organize.apply_order(tmp_path, [str(x)])
+    assert (sub / '001_x.jpg').read_text() == 'X'
+    assert not (tmp_path / '001_x.jpg').exists()  # not moved up to parent
+    organize.undo_last(tmp_path)
+    assert (sub / 'x.jpg').read_text() == 'X'     # restored to the subfolder
+    assert not (tmp_path / 'x.jpg').exists()
