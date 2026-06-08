@@ -86,15 +86,17 @@ def test_main_opens_directory_arg(monkeypatch, photo_dir):
     assert seen['folder'] == os.path.abspath(str(photo_dir))
 
 
-def test_main_no_args_opens_cwd(monkeypatch, tmp_path):
-    import sys, os
+def test_main_no_args_opens_picker(monkeypatch, tmp_path):
+    # bare `phota` launches with no folder so the controller shows the
+    # Finder-folder picker (folder=None), rather than defaulting to cwd.
+    import sys
     import phota.cli as cli
     seen = {}
-    monkeypatch.setattr(cli, 'launch', lambda folder=None, **kw: seen.update(folder=folder))
+    monkeypatch.setattr(cli, 'launch', lambda folder=None, **kw: seen.update(folder=folder, called=True))
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, 'argv', ['phota'])
     cli.main()
-    assert seen['folder'] == os.getcwd()
+    assert seen['called'] is True and seen['folder'] is None
 
 
 def test_main_delegates_subcommands(monkeypatch):

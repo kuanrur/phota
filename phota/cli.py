@@ -38,7 +38,7 @@ def open_app_window(url: str) -> None:
                         binpath,
                         f"--app={url}",
                         f"--user-data-dir={profile}",
-                        "--window-size=720,520",
+                        "--window-size=980,700",
                         "--no-first-run",
                         "--no-default-browser-check",
                     ],
@@ -52,22 +52,25 @@ def open_app_window(url: str) -> None:
 
 
 def launch(folder=None, open_browser=True, serve=True):
-    folder = os.path.abspath(folder or os.getcwd())
-    # Per-folder library: each launch() points PHOTA_DB at the folder's own db so
-    # different folders never share state, even across consecutive launches in
-    # one process. A genuinely external PHOTA_DB (tests, power users) is one the
-    # launcher did not set itself; respect it and leave it untouched.
-    user_override = (
-        "PHOTA_DB" in os.environ
-        and os.environ.get("_PHOTA_DB_OWNER") != os.environ["PHOTA_DB"]
-    )
-    if not user_override:
-        p = str(library_db_path(folder))
-        os.environ["PHOTA_DB"] = p
-        os.environ["_PHOTA_DB_OWNER"] = p
-    from phota.engine import build_index
+    # When a folder is given (`phota <dir>`), pre-index it and open straight to it.
+    # When none is given (bare `phota`), open with no active folder so the
+    # controller shows the Finder-folder picker and the user chooses.
+    if folder is not None:
+        folder = os.path.abspath(folder)
+        # Per-folder library: point PHOTA_DB at the folder's own db so different
+        # folders never share state. Respect a genuinely external PHOTA_DB
+        # (tests, power users) that the launcher did not set itself.
+        user_override = (
+            "PHOTA_DB" in os.environ
+            and os.environ.get("_PHOTA_DB_OWNER") != os.environ["PHOTA_DB"]
+        )
+        if not user_override:
+            p = str(library_db_path(folder))
+            os.environ["PHOTA_DB"] = p
+            os.environ["_PHOTA_DB_OWNER"] = p
+        from phota.engine import build_index
 
-    build_index(folder)
+        build_index(folder)
     fastapi_app = create_app(folder)
     if serve:
         import socket
@@ -89,7 +92,7 @@ def launch(folder=None, open_browser=True, serve=True):
 @app.callback(invoke_without_command=True)
 def _default(ctx: typer.Context):
     if ctx.invoked_subcommand is None:
-        launch(os.getcwd())
+        launch(None)
 
 
 def _load_photos() -> list:
@@ -269,7 +272,7 @@ def main() -> None:
 
     argv = sys.argv[1:]
     if not argv:
-        launch(os.getcwd())
+        launch(None)
         return
     first = argv[0]
     if first not in _COMMANDS and not first.startswith("-"):
