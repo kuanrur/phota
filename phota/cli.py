@@ -14,6 +14,42 @@ from phota import output, workflows
 app = typer.Typer(help="phota — customizable photo sorting")
 
 
+def open_app_window(url: str) -> None:
+    """Open the window as a standalone app window, not a tab in the user's
+    existing browser. Uses a Chromium browser's --app mode with a dedicated
+    profile so it spawns its own chromeless window; falls back to the default
+    browser if no Chromium browser is found."""
+    import subprocess
+    import sys
+
+    if sys.platform == "darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ]
+        profile = str(Path.home() / ".phota" / "browser")
+        for binpath in candidates:
+            if os.path.exists(binpath):
+                subprocess.Popen(
+                    [
+                        binpath,
+                        f"--app={url}",
+                        f"--user-data-dir={profile}",
+                        "--window-size=720,520",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return
+    import webbrowser
+
+    webbrowser.open(url)
+
+
 def launch(folder=None, open_browser=True, serve=True):
     folder = os.path.abspath(folder or os.getcwd())
     # Per-folder library: each launch() points PHOTA_DB at the folder's own db so
@@ -35,7 +71,6 @@ def launch(folder=None, open_browser=True, serve=True):
     if serve:
         import socket
         import threading
-        import webbrowser
 
         import uvicorn
 
@@ -45,7 +80,7 @@ def launch(folder=None, open_browser=True, serve=True):
         sock.close()
         url = f"http://127.0.0.1:{port}"
         if open_browser:
-            threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+            threading.Timer(0.6, lambda: open_app_window(url)).start()
         uvicorn.run(fastapi_app, host="127.0.0.1", port=port)
     return fastapi_app, folder
 

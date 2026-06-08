@@ -28,6 +28,12 @@ def reveal_in_finder(path):
     subprocess.run(["open", "-R", path])
 
 
+def open_in_default_app(path):
+    import subprocess
+
+    subprocess.run(["open", path])
+
+
 def _index() -> Index:
     idx = Index()
     idx.init_schema()
@@ -235,6 +241,15 @@ def create_app(folder: str | None = None) -> FastAPI:
         if p is None:
             raise HTTPException(status_code=404)
         reveal_in_finder(p.path)
+        return {"ok": True}
+
+    @app.post("/api/open/{photo_id}")
+    def open_photo(photo_id: str):
+        idx = _index()
+        p = idx.get_photo(photo_id)
+        if p is None:
+            raise HTTPException(status_code=404)
+        open_in_default_app(p.path)
         return {"ok": True}
 
     @app.get("/api/settings/ai")

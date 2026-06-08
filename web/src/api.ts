@@ -101,6 +101,11 @@ export const api = {
       method: 'POST',
     }),
 
+  openFile: (id: string) =>
+    request<{ ok: boolean }>(`/api/open/${encodeURIComponent(id)}`, {
+      method: 'POST',
+    }),
+
   export: (scope: ExportScope, mode: ExportMode, outDir: string) =>
     request<ExportResult>('/api/export', json({ scope, mode, out_dir: outDir })),
 

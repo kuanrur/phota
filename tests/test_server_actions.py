@@ -40,3 +40,13 @@ def test_reveal_calls_opener(photo_dir, monkeypatch):
     pid = c.get('/api/photos').json()[0]['id']
     assert c.post(f'/api/reveal/{pid}').status_code == 200
     assert called['path'].endswith('.jpg')
+
+
+def test_open_calls_default_app(photo_dir, monkeypatch):
+    import phota.server as server
+    called = {}
+    monkeypatch.setattr(server, 'open_in_default_app', lambda path: called.setdefault('path', path))
+    c = _client(photo_dir)
+    pid = c.get('/api/photos').json()[0]['id']
+    assert c.post(f'/api/open/{pid}').status_code == 200
+    assert called['path'].endswith('.jpg')
