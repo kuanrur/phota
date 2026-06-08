@@ -7,6 +7,9 @@ from phota.config import db_path
 from phota.models import Photo
 
 _PHOTO_COLUMNS = [f.name for f in fields(Photo)]
+# Columns never overwritten by an upsert UPDATE: the conflict key plus any
+# user-controlled state that a rescan must preserve.
+_USER_STATE_COLUMNS = frozenset({"id", "keep"})
 
 
 class Index:
@@ -47,12 +50,28 @@ class Index:
             );
             """
         )
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Bring a pre-existing photos table in sync with the Photo dataclass.
+
+        CREATE TABLE IF NOT EXISTS never alters an existing table, so columns
+        added to the schema after a database was first created (e.g. ``keep``)
+        are absent on older DBs. Add any missing columns without dropping data.
+        """
+        existing = {r["name"] for r in self.conn.execute("PRAGMA table_info(photos)").fetchall()}
+        if "keep" not in existing:
+            self.conn.execute("ALTER TABLE photos ADD COLUMN keep INTEGER")
 
     def upsert_photo(self, photo: Photo) -> None:
         cols = ", ".join(_PHOTO_COLUMNS)
         placeholders = ", ".join(f":{c}" for c in _PHOTO_COLUMNS)
-        updates = ", ".join(f"{c}=excluded.{c}" for c in _PHOTO_COLUMNS if c != "id")
+        # User-state columns (e.g. keep) are written only on initial INSERT;
+        # excluding them from the UPDATE set keeps rescans from clobbering them.
+        updates = ", ".join(
+            f"{c}=excluded.{c}" for c in _PHOTO_COLUMNS if c not in _USER_STATE_COLUMNS
+        )
         data = {c: getattr(photo, c) for c in _PHOTO_COLUMNS}
         data["captured_approx"] = int(photo.captured_approx)
         self.conn.execute(
