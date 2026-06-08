@@ -5,10 +5,21 @@ from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
+from phota import ai
+from phota import config as _config
 from phota import store, thumbs
 from phota.index import Index
 from phota.output import summarize_photos
+from phota.providers import get_provider
+
+
+class AiSettings(BaseModel):
+    provider: str
+    api_key: str | None = None
+    base_url: str | None = None
+    model: str | None = None
 
 
 def reveal_in_finder(path):
@@ -214,5 +225,36 @@ def create_app(folder: str | None = None) -> FastAPI:
             raise HTTPException(status_code=404)
         reveal_in_finder(p.path)
         return {"ok": True}
+
+    @app.get("/api/settings/ai")
+    def get_ai_settings():
+        status = _config.public_ai_status()
+        prov = get_provider(_config.ai_config())
+        status["vision"] = prov.vision if prov else None
+        return status
+
+    @app.post("/api/settings/ai")
+    def set_ai_settings(body: AiSettings):
+        _config.save_ai_config(
+            body.provider,
+            api_key=body.api_key,
+            base_url=body.base_url,
+            model=body.model,
+        )
+        status = _config.public_ai_status()
+        prov = get_provider(_config.ai_config())
+        status["vision"] = prov.vision if prov else None
+        return status
+
+    @app.get("/api/search")
+    def search(q: str):
+        ids = ai.search(_index(), q)
+        if ids is None:
+            raise HTTPException(status_code=409, detail="AI not configured")
+        return list(ids)
+
+    @app.post("/api/ai/analyze")
+    def analyze():
+        return {"analyzed": ai.analyze_library(_index())}
 
     return app

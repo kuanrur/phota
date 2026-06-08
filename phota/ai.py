@@ -1,106 +1,84 @@
 from __future__ import annotations
-
-import base64
 import json
-import os
-
+from phota import config
+from phota.providers import get_provider
 from phota.index import Index
-from phota.models import Photo
-from phota.preview import load_preview
-
-_HAS_KEY = bool(os.environ.get("ANTHROPIC_API_KEY"))
-_MODEL = "claude-opus-4-8"
 
 
-def _analyze_image(path: str) -> dict | None:
-    """Call Claude vision on a downscaled preview. Returns structured tags."""
-    import io
+def _provider():
+    return get_provider(config.ai_config())
 
-    from PIL import Image
-    import anthropic
 
-    gray = load_preview(path)
-    if gray is None:
+def _cached(idx, photo_id):
+    row = idx.conn.execute('SELECT caption, tags, subjects, aesthetic_score FROM ai WHERE photo_id=?', (photo_id,)).fetchone()
+    if not row:
         return None
-    buf = io.BytesIO()
-    Image.fromarray(gray).convert("RGB").save(buf, format="JPEG")
-    b64 = base64.standard_b64encode(buf.getvalue()).decode()
+    return {'caption': row['caption'], 'tags': json.loads(row['tags'] or '[]'), 'subjects': json.loads(row['subjects'] or '[]'), 'aesthetic_score': row['aesthetic_score']}
 
-    try:
-        client = anthropic.Anthropic()
-        msg = client.messages.create(
-            model=_MODEL,
-            max_tokens=400,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {
-                        "type": "base64", "media_type": "image/jpeg", "data": b64}},
-                    {"type": "text", "text":
-                        "Return JSON only: {\"caption\": str, \"tags\": [str], "
-                        "\"subjects\": [str], \"aesthetic_score\": float 0..1}."},
-                ],
-            }],
-        )
-        text = msg.content[0].text
-        return json.loads(text)
-    except Exception:
+
+def analyze(idx, photo):
+    prov = _provider()
+    if prov is None:
         return None
-
-
-def _cached_analysis(photo: Photo) -> dict | None:
-    idx = Index()
-    idx.init_schema()
-    row = idx.conn.execute(
-        "SELECT caption, tags, subjects, aesthetic_score FROM ai WHERE photo_id=?",
-        (photo.id,),
-    ).fetchone()
-    if row:
-        return {
-            "caption": row["caption"],
-            "tags": json.loads(row["tags"] or "[]"),
-            "subjects": json.loads(row["subjects"] or "[]"),
-            "aesthetic_score": row["aesthetic_score"],
-        }
-    try:
-        result = _analyze_image(photo.path)
-    except Exception:
-        return None
+    cached = _cached(idx, photo.id)
+    if cached is not None:
+        return cached
+    result = prov.analyze_image(photo.path)
     if result is None:
         return None
+    cfg = config.ai_config() or {}
     idx.conn.execute(
-        "INSERT OR REPLACE INTO ai "
-        "(photo_id, caption, tags, subjects, aesthetic_score, ai_model, analyzed_at) "
+        'INSERT OR REPLACE INTO ai (photo_id, caption, tags, subjects, aesthetic_score, ai_model, analyzed_at) '
         "VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-        (photo.id, result["caption"], json.dumps(result["tags"]),
-         json.dumps(result["subjects"]), result["aesthetic_score"], _MODEL),
-    )
+        (photo.id, result.get('caption'), json.dumps(result.get('tags', [])), json.dumps(result.get('subjects', [])), result.get('aesthetic_score'), cfg.get('provider')))
     idx.conn.commit()
     return result
 
 
-def rank_with_ai(photos: list[Photo]) -> list[Photo]:
-    """Attach an _aesthetic attribute used by cull as a tie-breaker."""
-    if not _HAS_KEY:
-        return photos
-    for p in photos:
-        analysis = _cached_analysis(p)
-        p._aesthetic = analysis["aesthetic_score"] if analysis else 0.0
-    return photos
+def analyze_library(idx, limit=None):
+    if _provider() is None:
+        return 0
+    count = 0
+    for p in idx.all_photos():
+        if _cached(idx, p.id) is None and analyze(idx, p) is not None:
+            count += 1
+            if limit and count >= limit:
+                break
+    return count
 
 
-def semantic_match(photos: list[Photo], query: str) -> set[str] | None:
-    """Return ids whose caption/tags contain the query. None if no AI."""
-    if not _HAS_KEY:
+def search(idx, query):
+    if _provider() is None:
         return None
     q = query.lower()
     matched = set()
+    for row in idx.conn.execute('SELECT photo_id, caption, tags FROM ai').fetchall():
+        hay = ((row['caption'] or '') + ' ' + (row['tags'] or '')).lower()
+        if q in hay:
+            matched.add(row['photo_id'])
+    return matched
+
+
+def rank_with_ai(photos):
+    if _provider() is None:
+        return photos
+    idx = Index(); idx.init_schema()
     for p in photos:
-        analysis = _cached_analysis(p)
-        if not analysis:
+        a = analyze(idx, p)
+        p._aesthetic = a['aesthetic_score'] if a else 0.0
+    return photos
+
+
+def semantic_match(photos, query):
+    if _provider() is None:
+        return None
+    idx = Index(); idx.init_schema()
+    q = query.lower(); matched = set()
+    for p in photos:
+        a = analyze(idx, p)
+        if not a:
             continue
-        haystack = (analysis["caption"] or "").lower() + " " + " ".join(
-            analysis["tags"]).lower()
-        if q in haystack:
+        hay = ((a.get('caption') or '') + ' ' + ' '.join(a.get('tags') or [])).lower()
+        if q in hay:
             matched.add(p.id)
     return matched

@@ -62,7 +62,7 @@ def test_find_semantic_without_key_degrades(photo_dir, monkeypatch):
     make_jpeg(photo_dir / "a.jpg", captured="2025:12:18 00:15:00", camera="X-T5")
     runner.invoke(app, ["scan", str(photo_dir)])
     import phota.ai as ai
-    monkeypatch.setattr(ai, "_HAS_KEY", False)
+    monkeypatch.setattr(ai, "_provider", lambda: None)
     r = runner.invoke(app, ["find", "sunset"])
     assert r.exit_code == 0
     assert "unavailable" in r.stdout.lower()

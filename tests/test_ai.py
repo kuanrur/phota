@@ -1,56 +1,54 @@
 import phota.ai as ai
+from phota.index import Index
 from phota.models import Photo
 
 
-def _p(pid, sharp, series=0):
-    return Photo(id=pid, path=f"/x/{pid}.jpg", filename=f"{pid}.jpg",
-                 kind="jpeg", series_id=series, sharpness=sharp)
+class FakeProvider:
+    vision = True
+
+    def __init__(self, result=None):
+        self.calls = 0
+        self.result = result or {'caption': 'a cat', 'tags': ['cat'], 'subjects': ['cat'], 'aesthetic_score': 0.9}
+
+    def available(self):
+        return True
+
+    def analyze_image(self, path):
+        self.calls += 1
+        return self.result
 
 
-def test_rank_with_ai_uses_provider_and_caches(monkeypatch):
-    calls = []
-
-    def fake_analyze(path):
-        calls.append(path)
-        return {"caption": "a cat", "tags": ["cat"], "subjects": ["cat"],
-                "aesthetic_score": 0.9}
-
-    monkeypatch.setattr(ai, "_analyze_image", fake_analyze)
-    monkeypatch.setattr(ai, "_HAS_KEY", True)
-    photos = [_p("a", 100.0), _p("b", 100.0)]
-    ranked = ai.rank_with_ai(photos)
-    assert all(hasattr(p, "_aesthetic") for p in ranked)
-    ai.rank_with_ai(photos)
-    assert len(calls) == 2  # one per distinct photo, cached second time
+def _photo(pid):
+    return Photo(id=pid, path=f'/x/{pid}.jpg', filename=f'{pid}.jpg', kind='jpeg', sharpness=100.0, series_id=0)
 
 
-def test_semantic_match_filters_by_tags(monkeypatch):
-    def fake_analyze(path):
-        return {"caption": "sunset over water", "tags": ["sunset", "water"],
-                "subjects": ["sky"], "aesthetic_score": 0.5}
-
-    monkeypatch.setattr(ai, "_analyze_image", fake_analyze)
-    monkeypatch.setattr(ai, "_HAS_KEY", True)
-    photos = [_p("a", 100.0)]
-    ids = ai.semantic_match(photos, "sunset")
-    assert ids == {"a"}
+def test_analyze_caches(monkeypatch):
+    fake = FakeProvider()
+    monkeypatch.setattr(ai, '_provider', lambda: fake)
+    idx = Index(); idx.init_schema(); idx.upsert_photo(_photo('a'))
+    p = idx.get_photo('a')
+    assert ai.analyze(idx, p)['caption'] == 'a cat'
+    ai.analyze(idx, p)
+    assert fake.calls == 1  # second call served from cache
 
 
-def test_analyze_error_returns_none(monkeypatch):
-    import phota.ai as ai
-    monkeypatch.setattr(ai, "_HAS_KEY", True)
-    def boom(path):
-        raise RuntimeError("api exploded")
-    monkeypatch.setattr(ai, "_analyze_image", boom)
-    from phota.models import Photo
-    p = Photo(id="z", path="/x/z.jpg", filename="z.jpg", kind="jpeg")
-    out = ai.rank_with_ai([p])
-    assert out[0]._aesthetic == 0.0
-
-
-def test_no_api_key_degrades(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr(ai, "_HAS_KEY", False)
-    photos = [_p("a", 100.0)]
+def test_no_provider_degrades(monkeypatch):
+    monkeypatch.setattr(ai, '_provider', lambda: None)
+    idx = Index(); idx.init_schema()
+    photos = [_photo('a')]
     assert ai.rank_with_ai(photos) == photos
-    assert ai.semantic_match(photos, "anything") is None
+    assert ai.semantic_match(photos, 'x') is None
+    assert ai.search(idx, 'x') is None
+
+
+def test_rank_with_ai_sets_aesthetic(monkeypatch):
+    monkeypatch.setattr(ai, '_provider', lambda: FakeProvider())
+    idx = Index(); idx.init_schema(); idx.upsert_photo(_photo('a'))
+    ranked = ai.rank_with_ai([idx.get_photo('a')])
+    assert ranked[0]._aesthetic == 0.9
+
+
+def test_semantic_match_filters(monkeypatch):
+    monkeypatch.setattr(ai, '_provider', lambda: FakeProvider({'caption': 'sunset', 'tags': ['sunset'], 'subjects': [], 'aesthetic_score': 0.5}))
+    idx = Index(); idx.init_schema(); idx.upsert_photo(_photo('a'))
+    assert ai.semantic_match([idx.get_photo('a')], 'sunset') == {'a'}
