@@ -27,6 +27,7 @@ class Photo:
     series_id: Optional[int] = None
     error: Optional[str] = None
     analyzed_at: Optional[str] = None
+    keep: Optional[int] = None
 
 
 @dataclass

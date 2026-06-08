@@ -32,8 +32,11 @@ class Index:
                 gps_lat REAL, gps_lon REAL,
                 sharpness REAL, exposure_score REAL,
                 phash TEXT, series_id INTEGER,
-                error TEXT, analyzed_at TEXT
+                error TEXT, analyzed_at TEXT,
+                keep INTEGER
             );
+            CREATE TABLE IF NOT EXISTS albums (name TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS album_photos (album TEXT, photo_id TEXT, UNIQUE(album, photo_id));
             CREATE TABLE IF NOT EXISTS ai (
                 photo_id TEXT PRIMARY KEY,
                 caption TEXT, tags TEXT, subjects TEXT,
