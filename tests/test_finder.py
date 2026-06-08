@@ -21,3 +21,11 @@ def test_open_folder_switches_active(monkeypatch, tmp_path):
     assert r.status_code == 200 and r.json()['count'] == 2
     photos = c.get('/api/photos').json()
     assert len(photos) == 2
+
+
+def test_finder_url_to_path_decodes_and_filters():
+    from phota.server import _finder_url_to_path
+    assert _finder_url_to_path('file:///Users/kj/Downloads/') == '/Users/kj/Downloads'
+    assert _finder_url_to_path('file:///Users/kj/My%20Photos/') == '/Users/kj/My Photos'
+    assert _finder_url_to_path('') is None
+    assert _finder_url_to_path('x-special:///Recents') is None  # smart folders skipped

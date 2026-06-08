@@ -50,18 +50,47 @@ def open_in_default_app(path):
     subprocess.run(["open", path])
 
 
+def _finder_url_to_path(url: str):
+    """Convert a Finder file:// URL to an absolute POSIX path (or None)."""
+    from urllib.parse import unquote, urlparse
+
+    parsed = urlparse(url.strip())
+    if parsed.scheme != "file" or not parsed.path:
+        return None
+    return unquote(parsed.path).rstrip("/") or "/"
+
+
 def list_finder_folders():
-    """Return POSIX paths of folders currently open in Finder windows."""
+    """Return absolute paths of folders open in Finder windows (front first).
+
+    Uses `URL of (target of every Finder window)` rather than coercing each
+    window's target to an alias: inside `repeat with w in (every Finder window)`
+    the loop variable is a list specifier, and `target of w as alias` raises
+    "Can't make ... into type alias", so the old loop silently returned nothing.
+    Reading the URL of the targets sidesteps that and also handles spaces and
+    smart/virtual locations (which we filter out by requiring a real directory).
+    """
     import subprocess
 
-    script = 'tell application "Finder"\nset out to ""\nrepeat with w in (every Finder window)\ntry\nset out to out & (POSIX path of (target of w as alias)) & linefeed\nend try\nend repeat\nreturn out\nend tell'
+    script = (
+        'tell application "Finder"\n'
+        "set theURLs to URL of (target of every Finder window)\n"
+        "set AppleScript's text item delimiters to linefeed\n"
+        "return theURLs as text\n"
+        "end tell"
+    )
     try:
         res = subprocess.run(
             ["osascript", "-e", script], capture_output=True, text=True, timeout=5
         )
-        return [ln for ln in res.stdout.splitlines() if ln.strip()]
     except Exception:
         return []
+    paths: list[str] = []
+    for line in res.stdout.splitlines():
+        p = _finder_url_to_path(line)
+        if p and os.path.isdir(p) and p not in paths:
+            paths.append(p)
+    return paths
 
 
 def _photo_dict(idx, p) -> dict:
