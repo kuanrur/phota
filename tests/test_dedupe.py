@@ -43,3 +43,15 @@ def test_no_duplicates(photo_dir):
     make_jpeg(photo_dir / 'c.jpg', captured='2025:12:18 00:17:00', sharp=False)
     build_index(photo_dir)
     assert find_duplicate_groups(Index()) == []
+
+
+def test_exact_byte_duplicates_both_indexed_and_grouped(photo_dir):
+    import shutil
+    from phota.index import Index
+    p = make_jpeg(photo_dir / 'a.jpg', captured='2025:12:18 00:15:00', sharp=True)
+    shutil.copy2(p, photo_dir / 'a_copy.jpg')  # exact byte-for-byte copy
+    build_index(photo_dir)
+    photos = Index().all_photos()
+    assert len(photos) == 2  # both files visible (not collapsed by content hash)
+    groups = find_duplicate_groups(Index())
+    assert len(groups) == 1 and set(groups[0]) == {p.id for p in photos}

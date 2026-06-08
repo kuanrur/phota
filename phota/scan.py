@@ -19,15 +19,15 @@ def _kind_for(ext: str) -> str:
 
 
 def _content_id(path: Path) -> str:
-    """Hash size + first/last 64KB. Fast and stable for large raws."""
+    """Identify a photo by its absolute path.
+
+    phota organizes the FILES in a folder, so each distinct file is its own
+    photo, even two byte-identical copies (a re-downloaded photo must still be
+    visible so it can be flagged as a repeat). Keying on the path keeps a file's
+    identity stable across re-scans while keeping duplicates distinct.
+    """
     h = hashlib.sha256()
-    size = path.stat().st_size
-    h.update(str(size).encode())
-    with path.open("rb") as f:
-        h.update(f.read(65536))
-        if size > 65536:
-            f.seek(-65536, 2)
-            h.update(f.read(65536))
+    h.update(str(path.resolve()).encode())
     return h.hexdigest()[:16]
 
 
