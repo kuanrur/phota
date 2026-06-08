@@ -13,12 +13,12 @@ def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).replace(tzinfo=None).isoformat()
 
 
-def build_index(directory) -> dict:
+def build_index(directory, db_path=None) -> dict:
     """Scan a directory and update the index incrementally.
 
     Returns stats: {scanned, analyzed, skipped}.
     """
-    idx = Index()
+    idx = Index(db_path)
     idx.init_schema()
     known = idx.known_mtimes()
 

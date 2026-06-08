@@ -13,9 +13,13 @@ def db_path() -> Path:
     return Path.home() / ".phota" / "index.db"
 
 
+def _phota_home():
+    return Path(os.environ.get("PHOTA_HOME") or (Path.home() / ".phota"))
+
+
 def library_db_path(folder):
     h = hashlib.sha1(str(Path(folder).resolve()).encode()).hexdigest()[:16]
-    return Path.home() / ".phota" / "libraries" / h / "index.db"
+    return _phota_home() / "libraries" / h / "index.db"
 
 
 def config_path() -> Path:

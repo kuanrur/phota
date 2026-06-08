@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from pydantic import BaseModel
 from phota import ai
 from phota import config as _config
 from phota import store, thumbs
+from phota.config import library_db_path
+from phota.engine import build_index
 from phota.index import Index
 from phota.output import summarize_photos
 from phota.providers import get_provider
@@ -20,6 +23,10 @@ class AiSettings(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     model: str | None = None
+
+
+class FolderBody(BaseModel):
+    path: str
 
 
 def reveal_in_finder(path):
@@ -34,10 +41,18 @@ def open_in_default_app(path):
     subprocess.run(["open", path])
 
 
-def _index() -> Index:
-    idx = Index()
-    idx.init_schema()
-    return idx
+def list_finder_folders():
+    """Return POSIX paths of folders currently open in Finder windows."""
+    import subprocess
+
+    script = 'tell application "Finder"\nset out to ""\nrepeat with w in (every Finder window)\ntry\nset out to out & (POSIX path of (target of w as alias)) & linefeed\nend try\nend repeat\nreturn out\nend tell'
+    try:
+        res = subprocess.run(
+            ["osascript", "-e", script], capture_output=True, text=True, timeout=5
+        )
+        return [ln for ln in res.stdout.splitlines() if ln.strip()]
+    except Exception:
+        return []
 
 
 def _photo_dict(idx, p) -> dict:
@@ -58,6 +73,30 @@ def _photo_dict(idx, p) -> dict:
 def create_app(folder: str | None = None) -> FastAPI:
     app = FastAPI()
     app.state.folder = folder
+    app.state.db_path = os.environ.get("PHOTA_DB") or (
+        str(library_db_path(folder)) if folder else None
+    )
+
+    def _index() -> Index:
+        idx = Index(app.state.db_path)
+        idx.init_schema()
+        return idx
+
+    @app.get("/api/finder-folders")
+    def finder_folders():
+        return [
+            {"path": p, "name": os.path.basename(p.rstrip("/")) or p}
+            for p in list_finder_folders()
+        ]
+
+    @app.post("/api/open-folder")
+    def open_folder(body: FolderBody):
+        folder = os.path.abspath(os.path.expanduser(body.path))
+        dbp = str(library_db_path(folder))
+        build_index(folder, db_path=dbp)
+        app.state.folder = folder
+        app.state.db_path = dbp
+        return {"folder": folder, "count": len(_index().all_photos())}
 
     @app.get("/api/library")
     def library():
