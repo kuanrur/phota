@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
 from phota import store, thumbs
 from phota.index import Index
 from phota.output import summarize_photos
+
+
+def reveal_in_finder(path):
+    import subprocess
+
+    subprocess.run(["open", "-R", path])
 
 
 def _index() -> Index:
@@ -124,5 +130,51 @@ def create_app(folder: str | None = None) -> FastAPI:
         if not t:
             raise HTTPException(status_code=404)
         return FileResponse(t, media_type="image/jpeg")
+
+    @app.post("/api/photos/{photo_id}/keep")
+    def set_keep(photo_id: str, keep: bool | None = Body(None, embed=True)):
+        idx = _index()
+        if idx.get_photo(photo_id) is None:
+            raise HTTPException(status_code=404)
+        store.set_keep(idx, photo_id, keep)
+        return {"ok": True}
+
+    @app.get("/api/albums")
+    def albums():
+        idx = _index()
+        return store.list_albums(idx)
+
+    @app.post("/api/albums")
+    def create_album(name: str = Body(..., embed=True)):
+        idx = _index()
+        store.create_album(idx, name)
+        return {"ok": True}
+
+    @app.delete("/api/albums/{name}")
+    def delete_album(name: str):
+        idx = _index()
+        store.delete_album(idx, name)
+        return {"ok": True}
+
+    @app.post("/api/albums/{name}/photos")
+    def add_to_album(name: str, ids: list[str] = Body(..., embed=True)):
+        idx = _index()
+        store.add_to_album(idx, name, ids)
+        return {"ok": True}
+
+    @app.delete("/api/albums/{name}/photos")
+    def remove_from_album(name: str, ids: list[str] = Body(..., embed=True)):
+        idx = _index()
+        store.remove_from_album(idx, name, ids)
+        return {"ok": True}
+
+    @app.post("/api/reveal/{photo_id}")
+    def reveal(photo_id: str):
+        idx = _index()
+        p = idx.get_photo(photo_id)
+        if p is None:
+            raise HTTPException(status_code=404)
+        reveal_in_finder(p.path)
+        return {"ok": True}
 
     return app
