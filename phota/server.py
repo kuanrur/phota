@@ -29,6 +29,10 @@ class FolderBody(BaseModel):
     path: str
 
 
+class OrderBody(BaseModel):
+    ordered_ids: list[str]
+
+
 def reveal_in_finder(path):
     import subprocess
 
@@ -321,6 +325,25 @@ def create_app(folder: str | None = None) -> FastAPI:
     @app.post("/api/ai/analyze")
     def analyze():
         return {"analyzed": ai.analyze_library(_index())}
+
+    @app.post("/api/reorder")
+    def reorder(body: OrderBody):
+        idx = _index()
+        byid = {p.id: p for p in idx.all_photos()}
+        paths = [byid[i].path for i in body.ordered_ids if i in byid]
+        from phota import organize
+
+        n = organize.apply_order(app.state.folder, paths)
+        build_index(app.state.folder, db_path=app.state.db_path)
+        return {"renamed": n}
+
+    @app.post("/api/undo")
+    def undo():
+        from phota import organize
+
+        n = organize.undo_last(app.state.folder)
+        build_index(app.state.folder, db_path=app.state.db_path)
+        return {"undone": n}
 
     @app.get("/api/duplicates")
     def duplicates():
