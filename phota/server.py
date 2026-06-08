@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -167,6 +168,28 @@ def create_app(folder: str | None = None) -> FastAPI:
         idx = _index()
         store.remove_from_album(idx, name, ids)
         return {"ok": True}
+
+    @app.post("/api/export")
+    def export(
+        scope: str = Body(..., embed=True),
+        mode: str = Body("copy", embed=True),
+        out_dir: str = Body(..., embed=True),
+    ):
+        import json
+
+        from phota import exporter
+        from phota.plan import apply_plan
+
+        idx = _index()
+        plan = exporter.build_export_plan(idx, scope, out_dir)
+        manifest = apply_plan(plan, mode=mode)
+        result = {"count": len(plan.ops)}
+        if mode == "move":
+            mpath = str(Path(out_dir) / "export.manifest.json")
+            Path(mpath).parent.mkdir(parents=True, exist_ok=True)
+            Path(mpath).write_text(json.dumps(manifest, indent=2))
+            result["manifest_path"] = mpath
+        return result
 
     @app.post("/api/reveal/{photo_id}")
     def reveal(photo_id: str):
