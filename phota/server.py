@@ -322,6 +322,15 @@ def create_app(folder: str | None = None) -> FastAPI:
     def analyze():
         return {"analyzed": ai.analyze_library(_index())}
 
+    @app.get("/api/duplicates")
+    def duplicates():
+        from phota import dedupe
+
+        return [
+            {"ids": g, "keeper": g[0]}
+            for g in dedupe.find_duplicate_groups(_index())
+        ]
+
     # Mount the built SPA LAST so it does not shadow the /api routes above.
     # Conditional on the build existing so tests/dev without a build still run.
     from fastapi.staticfiles import StaticFiles
