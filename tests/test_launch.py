@@ -105,3 +105,15 @@ def test_main_delegates_subcommands(monkeypatch):
     monkeypatch.setattr(sys, 'argv', ['phota', 'status'])
     cli.main()
     assert seen.get('app') is True
+
+
+def test_open_app_window_builds_app_command(monkeypatch):
+    import sys, subprocess, os
+    import phota.cli as cli
+    if sys.platform != 'darwin':
+        return
+    captured = {}
+    monkeypatch.setattr(os.path, 'exists', lambda p: True)
+    monkeypatch.setattr(subprocess, 'Popen', lambda args, **kw: captured.setdefault('args', list(args)))
+    cli.open_app_window('http://127.0.0.1:9999')  # must not raise (regression: Path import)
+    assert '--app=http://127.0.0.1:9999' in captured['args']
