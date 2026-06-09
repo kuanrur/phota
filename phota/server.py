@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections import defaultdict
 from pathlib import Path
 
@@ -161,11 +162,24 @@ def create_app(folder: str | None = None) -> FastAPI:
         "count": None,
         "error": None,
     }
+    # Serializes every build_index call (and the open-folder check-then-set) so
+    # two index passes never prune()/rewrite series_id over the same db at once.
+    app.state.index_lock = threading.Lock()
 
     def _index() -> Index:
         idx = Index(app.state.db_path)
         idx.init_schema()
         return idx
+
+    def _guard_indexing() -> None:
+        if app.state.index_job["running"]:
+            raise HTTPException(status_code=409, detail="indexing in progress")
+
+    def _rebuild() -> None:
+        """Re-index the active folder, serialized so it never overlaps the
+        background indexer from open-folder."""
+        with app.state.index_lock:
+            build_index(app.state.folder, db_path=app.state.db_path)
 
     @app.get("/api/finder-folders")
     def finder_folders():
@@ -182,19 +196,23 @@ def create_app(folder: str | None = None) -> FastAPI:
     def open_folder(body: FolderBody):
         folder = os.path.abspath(os.path.expanduser(body.path))
         dbp = str(library_db_path(folder))
-        if app.state.index_job["running"]:
-            raise HTTPException(status_code=409, detail="indexing in progress")
-        app.state.folder = folder
-        app.state.db_path = dbp
-        job = {
-            "running": True,
-            "done": 0,
-            "total": 0,
-            "folder": folder,
-            "count": None,
-            "error": None,
-        }
-        app.state.index_job = job
+        # Atomically reject if a prior job is still running, else claim the slot.
+        # Holding index_lock here makes the check-then-set safe against a
+        # concurrent open-folder/mutation racing the same db.
+        with app.state.index_lock:
+            if app.state.index_job["running"]:
+                raise HTTPException(status_code=409, detail="indexing in progress")
+            app.state.folder = folder
+            app.state.db_path = dbp
+            job = {
+                "running": True,
+                "done": 0,
+                "total": 0,
+                "folder": folder,
+                "count": None,
+                "error": None,
+            }
+            app.state.index_job = job
 
         def _progress(done, total):
             job["done"] = done
@@ -202,8 +220,9 @@ def create_app(folder: str | None = None) -> FastAPI:
 
         def _run():
             try:
-                build_index(folder, db_path=dbp, progress=_progress)
-                job["count"] = len(Index(dbp).all_photos())
+                with app.state.index_lock:
+                    build_index(folder, db_path=dbp, progress=_progress)
+                    job["count"] = len(Index(dbp).all_photos())
             except Exception as e:
                 job["error"] = str(e)
             finally:
@@ -214,8 +233,6 @@ def create_app(folder: str | None = None) -> FastAPI:
             if job["error"]:
                 raise HTTPException(status_code=500, detail=job["error"])
             return {"folder": folder, "count": job["count"]}
-
-        import threading
 
         threading.Thread(target=_run, daemon=True).start()
         return {"folder": folder, "indexing": True}
@@ -450,17 +467,19 @@ def create_app(folder: str | None = None) -> FastAPI:
 
     @app.post("/api/reorder")
     def reorder(body: OrderBody):
+        _guard_indexing()
         idx = _index()
         byid = {p.id: p for p in idx.all_photos()}
         paths = [byid[i].path for i in body.ordered_ids if i in byid]
         from phota import organize
 
         n = organize.apply_order(app.state.folder, paths)
-        build_index(app.state.folder, db_path=app.state.db_path)
+        _rebuild()
         return {"renamed": n}
 
     @app.post("/api/sort")
     def sort(body: SortBody):
+        _guard_indexing()
         idx = _index()
         byid = {p.id: p for p in idx.all_photos()}
         paths = [byid[i].path for i in body.ids if i in byid]
@@ -470,15 +489,16 @@ def create_app(folder: str | None = None) -> FastAPI:
             n = organize.sort_into_folder(app.state.folder, body.folder_name, paths)
         except FileExistsError as e:
             raise HTTPException(status_code=409, detail=f"destination conflict: {e}")
-        build_index(app.state.folder, db_path=app.state.db_path)
+        _rebuild()
         return {"moved": n, "folder": organize._safe_name(body.folder_name)}
 
     @app.post("/api/undo")
     def undo():
+        _guard_indexing()
         from phota import organize
 
         n = organize.undo_last(app.state.folder)
-        build_index(app.state.folder, db_path=app.state.db_path)
+        _rebuild()
         return {"undone": n}
 
     @app.post("/api/organize")
@@ -487,6 +507,7 @@ def create_app(folder: str | None = None) -> FastAPI:
 
         if not app.state.folder:
             raise HTTPException(status_code=400, detail="no active folder")
+        _guard_indexing()
         idx = _index()
         photos = idx.all_photos()
         folder = app.state.folder
@@ -524,7 +545,7 @@ def create_app(folder: str | None = None) -> FastAPI:
                 raise HTTPException(status_code=400, detail="unknown action")
         except FileExistsError as e:
             raise HTTPException(status_code=409, detail=str(e))
-        build_index(folder, db_path=app.state.db_path)
+        _rebuild()
         return result
 
     @app.get("/api/duplicates")
