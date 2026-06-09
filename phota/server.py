@@ -38,6 +38,10 @@ class SortBody(BaseModel):
     ids: list[str]
 
 
+class OrganizeBody(BaseModel):
+    action: str
+
+
 def reveal_in_finder(path):
     import subprocess
 
@@ -430,6 +434,52 @@ def create_app(folder: str | None = None) -> FastAPI:
         n = organize.undo_last(app.state.folder)
         build_index(app.state.folder, db_path=app.state.db_path)
         return {"undone": n}
+
+    @app.post("/api/organize")
+    def organize_action(body: OrganizeBody):
+        from phota import dedupe, organize
+
+        if not app.state.folder:
+            raise HTTPException(status_code=400, detail="no active folder")
+        idx = _index()
+        photos = idx.all_photos()
+        folder = app.state.folder
+        action = body.action
+        try:
+            if action == "sort_by_date":
+                ordered = sorted(photos, key=lambda p: (p.captured_at or ""))
+                n = organize.apply_order(folder, [p.path for p in ordered])
+                result = {"action": action, "renamed": n}
+            elif action == "by_day":
+                assignments = [
+                    ((p.captured_at or "undated")[:10], p.path) for p in photos
+                ]
+                n, folders = organize.group_into_folders(folder, assignments)
+                result = {"action": action, "moved": n, "folders": folders}
+            elif action == "by_camera":
+                assignments = [((p.camera or "Unknown"), p.path) for p in photos]
+                n, folders = organize.group_into_folders(folder, assignments)
+                result = {"action": action, "moved": n, "folders": folders}
+            elif action == "duplicates":
+                groups = dedupe.find_duplicate_groups(idx)
+                byid = {p.id: p for p in photos}
+                assignments = [
+                    ("_duplicates", byid[pid].path)
+                    for g in groups
+                    for pid in g[1:]
+                    if pid in byid
+                ]
+                if assignments:
+                    n, _ = organize.group_into_folders(folder, assignments)
+                else:
+                    n = 0
+                result = {"action": action, "moved": n}
+            else:
+                raise HTTPException(status_code=400, detail="unknown action")
+        except FileExistsError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        build_index(folder, db_path=app.state.db_path)
+        return result
 
     @app.get("/api/duplicates")
     def duplicates():
