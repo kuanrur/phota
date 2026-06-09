@@ -230,3 +230,13 @@ def test_group_into_folders_prevalidates_collision(tmp_path):
     # nothing moved: both originals still in place
     assert a.exists() and b.exists()
     assert not (tmp_path / 'out').exists() or not list((tmp_path / 'out').iterdir())
+
+
+def test_undo_group_removes_emptied_subfolders(tmp_path):
+    a = make_jpeg(tmp_path / 'a.jpg'); b = make_jpeg(tmp_path / 'b.jpg')
+    organize.group_into_folders(tmp_path, [('day1', str(a)), ('day2', str(b))])
+    assert (tmp_path / 'day1').exists() and (tmp_path / 'day2').exists()
+    organize.undo_last(tmp_path)
+    # files restored, AND the created subfolders are gone
+    assert (tmp_path / 'a.jpg').exists() and (tmp_path / 'b.jpg').exists()
+    assert not (tmp_path / 'day1').exists() and not (tmp_path / 'day2').exists()

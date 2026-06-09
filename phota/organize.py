@@ -171,9 +171,21 @@ def undo_last(folder):
         shutil.move(str(src), str(tmp))
         temps.append((tmp, op['from']))
     # Phase 2: restore each temp to its original location.
+    vacated_dirs = set()
     for tmp, dst in temps:
         if Path(dst).exists():
             raise FileExistsError(str(dst))
         shutil.move(str(tmp), str(dst))
+        vacated_dirs.add(Path(tmp).parent)
+    # Remove any subfolder of the active folder we just emptied, so an undone
+    # "group into folders" leaves no empty directory behind.
+    folder = Path(folder).resolve()
+    for d in vacated_dirs:
+        d = d.resolve()
+        if d != folder and folder in d.parents:
+            try:
+                d.rmdir()  # only succeeds if now empty
+            except OSError:
+                pass
     mp.unlink()
     return len(live)
