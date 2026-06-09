@@ -1,18 +1,41 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError } from './api'
-import type { DuplicateGroup, FinderFolder, Library } from './types'
+import type {
+  DuplicateGroup,
+  FinderFolder,
+  IndexStatus,
+  Library,
+} from './types'
 import { ArrowLeft, FolderIcon } from './components/icons'
 
 /* ─────────────────────────────────────────────────────────────
    phota — minimal Finder-folder controller.
 
-   A tiny utility window with exactly two states:
+   A tiny utility window with three states:
      A · Picker     — choose a folder (from Finder, or a pasted path)
+     · Indexing     — the chosen folder is being scanned (progress bar)
      B · Controlling — show ONLY which folder is selected
    No photo grid, no thumbnails. Just the selected folder.
    ───────────────────────────────────────────────────────────── */
 
-type Screen = 'picker' | 'folder'
+type Screen = 'picker' | 'indexing' | 'folder'
+
+/** What the indexing view renders while a folder is being scanned. */
+interface Indexing {
+  folder: string
+  status: IndexStatus | null
+  error: string | null
+}
+
+/** A finished, empty status — used to synthesize a fatal open-folder error. */
+const EMPTY_STATUS: IndexStatus = {
+  running: false,
+  done: 0,
+  total: 0,
+  folder: null,
+  count: null,
+  error: null,
+}
 
 /** Repeats beyond the single keeper in each group — the number "Find
  *  duplicates" would move into _duplicates/. */
@@ -28,9 +51,11 @@ export default function App() {
   const [folders, setFolders] = useState<FinderFolder[]>([])
   const [finderError, setFinderError] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
-  const [busyPath, setBusyPath] = useState<string | null>(null)
   const [manualPath, setManualPath] = useState('')
   const [pickError, setPickError] = useState<string | null>(null)
+
+  // ── Indexing — the chosen folder is being scanned ──────────
+  const [indexing, setIndexing] = useState<Indexing | null>(null)
 
   // ── State B — controlling ──────────────────────────────────
   const [library, setLibrary] = useState<Library | null>(null)
@@ -65,47 +90,131 @@ export default function App() {
     setDupeExtras(extrasOf(dupes))
   }, [])
 
-  // ── Boot: jump straight to State B if a folder is active ───
+  // ── Indexing: open a folder asynchronously and poll progress ─
+  // A monotonically-increasing token so a stale poll from an earlier run
+  // (e.g. the user changed folder mid-index) never resolves into State B.
+  const runRef = useRef(0)
+
+  const startIndexing = useCallback(
+    (path: string) => {
+      const folder = path.trim()
+      if (!folder) return
+      const run = ++runRef.current
+      const stale = () => runRef.current !== run
+
+      setScreen('indexing')
+      setIndexing({ folder, status: null, error: null })
+
+      // Has *our* (re)build actually been accepted? Until it has, a
+      // running status belongs to a previous folder's index, so we must
+      // not resolve into State B on its completion — we (re)issue
+      // open-folder once it frees up.
+      let accepted = false
+
+      const tryOpen = async () => {
+        if (stale() || accepted) return
+        try {
+          await api.openFolder(folder)
+          if (stale()) return
+          accepted = true
+          // Our job is queued; drop any "still indexing previous" note.
+          setIndexing((cur) => (cur ? { ...cur, error: null } : cur))
+        } catch (e) {
+          if (stale()) return
+          if (e instanceof ApiError && e.status === 409) {
+            // A previous index is still running — surface it and retry.
+            setIndexing((cur) =>
+              cur
+                ? { ...cur, error: 'still indexing the previous folder…' }
+                : cur,
+            )
+          } else {
+            const msg =
+              e instanceof ApiError ? e.message : 'could not open that folder'
+            setIndexing((cur) =>
+              cur
+                ? {
+                    ...cur,
+                    status: { ...EMPTY_STATUS, error: msg },
+                    error: msg,
+                  }
+                : cur,
+            )
+            accepted = true // stop retrying; a fatal error is shown
+          }
+        }
+      }
+
+      const poll = async () => {
+        if (stale()) return
+        try {
+          const status = await api.indexStatus()
+          if (stale()) return
+          setIndexing((cur) => (cur ? { ...cur, status } : cur))
+
+          if (!status.running) {
+            // The previous index just drained — claim the slot for us.
+            if (!accepted) {
+              await tryOpen()
+              if (!stale()) window.setTimeout(poll, 250)
+              return
+            }
+            if (status.error) {
+              setIndexing((cur) =>
+                cur ? { ...cur, error: status.error } : cur,
+              )
+              return
+            }
+            await loadFolder()
+            if (stale()) return
+            setScreen('folder')
+            setIndexing(null)
+            return
+          }
+        } catch {
+          /* transient fetch error — keep polling */
+        }
+        if (!stale()) window.setTimeout(poll, 250)
+      }
+
+      void tryOpen()
+      window.setTimeout(poll, 250)
+    },
+    [loadFolder],
+  )
+
+  // ── Boot: refresh a stale index with visible progress ──────
   useEffect(() => {
     api
       .library()
-      .then(async (lib) => {
+      .then((lib) => {
         if (lib.folder) {
-          setLibrary(lib)
-          const dupes = await api.duplicates().catch(() => [])
-          setDupeGroups(dupes.length)
-          setDupeExtras(extrasOf(dupes))
-          setScreen('folder')
+          // A folder is already active — re-open it so a stale index
+          // refreshes with visible progress (re-opens are near-instant).
+          startIndexing(lib.folder)
         } else {
           scanFinder()
         }
       })
       .catch(() => scanFinder())
       .finally(() => setBooting(false))
-  }, [scanFinder])
+  }, [scanFinder, startIndexing])
 
-  // ── Adopt a folder → State B ───────────────────────────────
+  // ── Adopt a folder → Indexing → State B ────────────────────
   const open = useCallback(
-    async (path: string) => {
+    (path: string) => {
       if (!path.trim()) return
-      setBusyPath(path)
       setPickError(null)
-      try {
-        await api.openFolder(path)
-        await loadFolder()
-        setScreen('folder')
-      } catch {
-        setPickError('could not open that folder')
-      } finally {
-        setBusyPath(null)
-      }
+      startIndexing(path)
     },
-    [loadFolder],
+    [startIndexing],
   )
 
   // ── Back to State A — re-pick regardless of server's last folder ─
   const changeFolder = useCallback(() => {
+    runRef.current++ // abandon any in-flight index poll
     setLibrary(null)
+    setIndexing(null)
     setManualPath('')
     setPickError(null)
     setScreen('picker')
@@ -125,13 +234,14 @@ export default function App() {
             folders={folders}
             error={finderError}
             scanning={scanning}
-            busyPath={busyPath}
             manualPath={manualPath}
             pickError={pickError}
             onManualChange={setManualPath}
             onPick={open}
             onRescan={scanFinder}
           />
+        ) : screen === 'indexing' ? (
+          <IndexingView state={indexing} onBack={changeFolder} />
         ) : (
           <Controller
             library={library}
@@ -152,7 +262,6 @@ interface PickerProps {
   folders: FinderFolder[]
   error: string | null
   scanning: boolean
-  busyPath: string | null
   manualPath: string
   pickError: string | null
   onManualChange: (v: string) => void
@@ -164,14 +273,12 @@ function Picker({
   folders,
   error,
   scanning,
-  busyPath,
   manualPath,
   pickError,
   onManualChange,
   onPick,
   onRescan,
 }: PickerProps) {
-  const busy = busyPath !== null
   const permission = error === 'permission'
 
   return (
@@ -198,8 +305,7 @@ function Picker({
               </p>
               <button
                 onClick={onRescan}
-                disabled={busy}
-                className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:opacity-50"
+                className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber"
               >
                 Rescan
               </button>
@@ -211,8 +317,7 @@ function Picker({
               </p>
               <button
                 onClick={onRescan}
-                disabled={busy}
-                className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:opacity-50"
+                className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber"
               >
                 Rescan
               </button>
@@ -220,44 +325,34 @@ function Picker({
           ) : (
             <>
               <ul className="flex flex-col gap-2">
-                {folders.map((f, i) => {
-                  const opening = busyPath === f.path
-                  return (
-                    <li
-                      key={f.path}
-                      className="tile-enter"
-                      style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
+                {folders.map((f, i) => (
+                  <li
+                    key={f.path}
+                    className="tile-enter"
+                    style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
+                  >
+                    <button
+                      onClick={() => onPick(f.path)}
+                      className="group flex w-full items-center gap-3 border border-hairline bg-panel px-4 py-3 text-left transition-colors hover:border-amber-ring hover:bg-elevated"
                     >
-                      <button
-                        disabled={busy}
-                        onClick={() => onPick(f.path)}
-                        className="group flex w-full items-center gap-3 border border-hairline bg-panel px-4 py-3 text-left transition-colors hover:border-amber-ring hover:bg-elevated disabled:cursor-default disabled:opacity-60"
-                      >
-                        <span className="flex-none text-dim transition-colors group-hover:text-amber">
-                          <FolderIcon size={16} />
+                      <span className="flex-none text-dim transition-colors group-hover:text-amber">
+                        <FolderIcon size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-sans text-[14px] text-text">
+                          {f.name}
                         </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-sans text-[14px] text-text">
-                            {f.name}
-                          </span>
-                          <span className="block truncate font-mono text-[10.5px] text-dim">
-                            {f.path}
-                          </span>
+                        <span className="block truncate font-mono text-[10.5px] text-dim">
+                          {f.path}
                         </span>
-                        {opening && (
-                          <span className="flex-none font-mono text-[10px] text-amber">
-                            opening…
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  )
-                })}
+                      </span>
+                    </button>
+                  </li>
+                ))}
               </ul>
               <button
                 onClick={onRescan}
-                disabled={busy}
-                className="mt-5 font-mono text-[11px] text-faint transition-colors hover:text-dim disabled:opacity-50"
+                className="mt-5 font-mono text-[11px] text-faint transition-colors hover:text-dim"
               >
                 ↻ rescan Finder
               </button>
@@ -286,7 +381,7 @@ function Picker({
             />
             <button
               type="submit"
-              disabled={busy || !manualPath.trim()}
+              disabled={!manualPath.trim()}
               className="flex-none border border-hairline px-3.5 py-2 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:cursor-default disabled:opacity-40"
             >
               Open
@@ -296,6 +391,94 @@ function Picker({
             <p className="mt-2 font-mono text-[11px] text-amber">{pickError}</p>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─── Indexing — the chosen folder is being scanned ─────────────
+   A calm darkroom progress view: folder name + path, a hairline
+   track with an amber fill (done / total), no spinner, no photos. */
+
+interface IndexingViewProps {
+  state: Indexing | null
+  onBack: () => void
+}
+
+function IndexingView({ state, onBack }: IndexingViewProps) {
+  const folder = state?.folder ?? ''
+  const name = folder.replace(/\/+$/, '').split('/').pop() || folder || '—'
+  const status = state?.status ?? null
+  const error = state?.error ?? null
+
+  const done = status?.done ?? 0
+  const total = status?.total ?? 0
+  // Treat a missing status as "still scanning": no width, no count.
+  const running = status?.running ?? true
+  const scanning = running && total === 0
+  const pct = total > 0 ? Math.min(100, (done / total) * 100) : 0
+
+  // A hard error (open-folder/build failed) — offer a way back.
+  const fatal = error !== null && status?.error != null
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-8 py-14">
+      <div className="scale-in w-full max-w-[420px] text-center">
+        <div
+          className="truncate font-serif text-[30px] italic leading-tight text-text"
+          title={name}
+        >
+          {name}
+        </div>
+        <div
+          className="mx-auto mt-2 max-w-[480px] truncate font-mono text-[11px] text-dim"
+          title={folder}
+        >
+          {folder}
+        </div>
+
+        {fatal ? (
+          <div className="mt-10">
+            <p className="font-mono text-[11px] text-amber">{error}</p>
+            <button
+              onClick={onBack}
+              className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber"
+            >
+              ← back to picker
+            </button>
+          </div>
+        ) : (
+          <div className="mt-10">
+            {/* Slim hairline track with an amber fill. */}
+            <div
+              className="h-[2px] w-full overflow-hidden bg-hairline"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={total || undefined}
+              aria-valuenow={total > 0 ? done : undefined}
+            >
+              <div
+                className="h-full bg-amber"
+                style={{ width: `${pct}%`, transition: 'width 200ms ease-out' }}
+              />
+            </div>
+
+            <p className="mt-3 font-mono text-[11px] text-dim">
+              {scanning ? (
+                'scanning…'
+              ) : (
+                <>
+                  indexing… {done} / {total} photos
+                </>
+              )}
+            </p>
+
+            {/* A transient 409 note while a previous index drains. */}
+            {error && (
+              <p className="mt-2 font-mono text-[11px] text-faint">{error}</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

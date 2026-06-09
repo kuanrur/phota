@@ -1,6 +1,7 @@
 import type {
   DuplicateGroup,
   FinderFoldersResponse,
+  IndexStatus,
   Library,
   OrganizeResult,
 } from './types'
@@ -50,10 +51,18 @@ export const api = {
   finderFolders: () =>
     request<FinderFoldersResponse>('/api/finder-folders'),
 
-  /** Adopt `path` as the active folder; (re)builds its index.
-   *  `~` expansion is handled server-side. */
+  /** Adopt `path` as the active folder and kick off an ASYNC (re)build of
+   *  its index. Returns immediately with `indexing: true`; poll
+   *  `indexStatus()` for progress. `~` expansion is handled server-side.
+   *  Throws ApiError(409) when another index is already running. */
   openFolder: (path: string) =>
-    request<{ folder: string; count: number }>('/api/open-folder', json({ path })),
+    request<{ folder: string; indexing: boolean }>(
+      '/api/open-folder',
+      json({ path }),
+    ),
+
+  /** Progress of the background index job started by `openFolder`. */
+  indexStatus: () => request<IndexStatus>('/api/index-status'),
 
   /** Sets of near-identical photos in the active folder. */
   duplicates: () => request<DuplicateGroup[]>('/api/duplicates'),

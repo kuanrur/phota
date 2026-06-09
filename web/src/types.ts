@@ -30,6 +30,18 @@ export interface DuplicateGroup {
   keeper: string
 }
 
+/** Progress of the background index job (GET /api/index-status).
+ *  `running` flips to false when scanning finishes; `count` is the final
+ *  photo total (null while running), `error` is set on failure. */
+export interface IndexStatus {
+  running: boolean
+  done: number
+  total: number
+  folder: string | null
+  count: number | null
+  error: string | null
+}
+
 /** Result of POST /api/organize. Fields present depend on the action:
  *  sort_by_date → renamed; by_day/by_camera → moved + folders;
  *  duplicates → moved. */
