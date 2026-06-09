@@ -85,9 +85,12 @@ def sort_into_folder(folder, subfolder_name, paths):
     # common collision is rejected before any filesystem mutation.
     seen: set[str] = set()
     for src in srcs:
-        if src.name in seen:
+        # Case-insensitive key so basenames differing only by case (which map to
+        # the same file on a case-insensitive filesystem) are rejected here.
+        key = os.path.normcase(src.name).casefold()
+        if key in seen:
             raise FileExistsError(str(dest / src.name))
-        seen.add(src.name)
+        seen.add(key)
     dest.mkdir(parents=True, exist_ok=True)
     ops = []
     try:
@@ -117,9 +120,13 @@ def group_into_folders(folder, assignments):
         planned.append((src, dest))
     seen = set()
     for src, dest in planned:
-        key = str(dest)
+        # Case-insensitive key: on a case-insensitive filesystem (default macOS
+        # APFS) day/IMG.JPG and day/img.jpg are the SAME file, so they must
+        # collide here and reject the whole batch before any move -- otherwise
+        # the second move silently overwrites the first and loses a photo.
+        key = os.path.normcase(str(dest)).casefold()
         if key in seen or dest.exists():
-            raise FileExistsError(key)
+            raise FileExistsError(str(dest))
         seen.add(key)
     ops = []
     for src, dest in planned:

@@ -198,6 +198,27 @@ def test_group_into_folders_moves_and_undo(tmp_path):
     assert (tmp_path / 'a.jpg').exists() and (tmp_path / 'b.jpg').exists() and (tmp_path / 'c.jpg').exists()
 
 
+def test_group_into_folders_prevalidates_case_variant_collision(tmp_path):
+    # On a case-insensitive filesystem (default macOS APFS), two destinations
+    # that differ ONLY by case (day/IMG.JPG vs day/img.jpg) are the SAME file.
+    # The two sources live in DIFFERENT directories (distinct files), as with
+    # real camera/import names (IMG_0001.JPG vs img_0001.jpg), so both genuinely
+    # exist on disk. The in-batch pre-validation must treat the case-variant
+    # destinations as a collision and reject the whole batch BEFORE moving
+    # anything -- otherwise the second move silently overwrites the first and
+    # permanently destroys a photo.
+    s1 = tmp_path / 's1'; s2 = tmp_path / 's2'
+    s1.mkdir(); s2.mkdir()
+    upper = s1 / 'IMG.JPG'; upper.write_text('UPPER')
+    lower = s2 / 'img.jpg'; lower.write_text('lower')
+    with pytest.raises(FileExistsError):
+        organize.group_into_folders(tmp_path, [('day', str(upper)), ('day', str(lower))])
+    # Zero mutation: BOTH source files survive with their original contents.
+    assert upper.read_text() == 'UPPER'
+    assert lower.read_text() == 'lower'
+    assert not organize.manifest_path(tmp_path).exists()
+
+
 def test_group_into_folders_prevalidates_collision(tmp_path):
     # two sources with the same basename targeting the same subfolder -> must raise
     # BEFORE moving anything (no partial move, no data loss)
