@@ -185,3 +185,27 @@ def test_apply_order_keeps_subfolder_files_in_place_and_undo_round_trips(tmp_pat
     organize.undo_last(tmp_path)
     assert (sub / 'x.jpg').read_text() == 'X'     # restored to the subfolder
     assert not (tmp_path / 'x.jpg').exists()
+
+
+def test_group_into_folders_moves_and_undo(tmp_path):
+    a = make_jpeg(tmp_path / 'a.jpg'); b = make_jpeg(tmp_path / 'b.jpg'); c = make_jpeg(tmp_path / 'c.jpg')
+    moved, folders = organize.group_into_folders(tmp_path, [('2025-12-24', str(a)), ('2025-12-24', str(b)), ('2025-12-25', str(c))])
+    assert moved == 3 and folders == ['2025-12-24', '2025-12-25']
+    assert (tmp_path / '2025-12-24' / 'a.jpg').exists() and (tmp_path / '2025-12-24' / 'b.jpg').exists()
+    assert (tmp_path / '2025-12-25' / 'c.jpg').exists()
+    assert not (tmp_path / 'a.jpg').exists()
+    organize.undo_last(tmp_path)
+    assert (tmp_path / 'a.jpg').exists() and (tmp_path / 'b.jpg').exists() and (tmp_path / 'c.jpg').exists()
+
+
+def test_group_into_folders_prevalidates_collision(tmp_path):
+    # two sources with the same basename targeting the same subfolder -> must raise
+    # BEFORE moving anything (no partial move, no data loss)
+    import pytest, shutil as _sh
+    sub1 = tmp_path / 'x'; sub1.mkdir(); a = make_jpeg(sub1 / 'dup.jpg')
+    sub2 = tmp_path / 'y'; sub2.mkdir(); b = make_jpeg(sub2 / 'dup.jpg')
+    with pytest.raises(FileExistsError):
+        organize.group_into_folders(tmp_path, [('out', str(a)), ('out', str(b))])
+    # nothing moved: both originals still in place
+    assert a.exists() and b.exists()
+    assert not (tmp_path / 'out').exists() or not list((tmp_path / 'out').iterdir())

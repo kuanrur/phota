@@ -103,6 +103,33 @@ def sort_into_folder(folder, subfolder_name, paths):
     return len(ops)
 
 
+def group_into_folders(folder, assignments):
+    '''assignments: list of (subfolder_name, src_abspath). Move each src into
+    folder/<safe subfolder>/<basename>. Pre-validate ALL destinations are
+    free (no existing file, no two assignments to the same dest) BEFORE
+    moving anything, so a failure never leaves a partial move. One undo
+    manifest. Returns (moved_count, sorted_unique_subfolder_names).'''
+    folder = Path(folder)
+    planned = []
+    for sub, src in assignments:
+        src = Path(src)
+        dest = folder / _safe_name(sub) / src.name
+        planned.append((src, dest))
+    seen = set()
+    for src, dest in planned:
+        key = str(dest)
+        if key in seen or dest.exists():
+            raise FileExistsError(key)
+        seen.add(key)
+    ops = []
+    for src, dest in planned:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dest))
+        ops.append({'from': str(src), 'to': str(dest)})
+    _write_manifest(folder, ops)
+    return len(ops), sorted({_safe_name(s) for s, _ in assignments})
+
+
 def undo_last(folder):
     '''Reverse the last recorded operation. Two-phase and overwrite-safe.
 
