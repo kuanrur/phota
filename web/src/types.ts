@@ -29,3 +29,13 @@ export interface DuplicateGroup {
   ids: string[]
   keeper: string
 }
+
+/** Result of POST /api/organize. Fields present depend on the action:
+ *  sort_by_date → renamed; by_day/by_camera → moved + folders;
+ *  duplicates → moved. */
+export interface OrganizeResult {
+  action: string
+  renamed?: number
+  moved?: number
+  folders?: number
+}

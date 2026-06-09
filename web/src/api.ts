@@ -2,6 +2,7 @@ import type {
   DuplicateGroup,
   FinderFoldersResponse,
   Library,
+  OrganizeResult,
 } from './types'
 
 /** Thrown for any non-2xx response; carries the HTTP status. */
@@ -56,4 +57,13 @@ export const api = {
 
   /** Sets of near-identical photos in the active folder. */
   duplicates: () => request<DuplicateGroup[]>('/api/duplicates'),
+
+  /** Run an organize action on the active folder. Throws ApiError on
+   *  4xx (e.g. 409 destination collision, 400 unknown action) so the UI
+   *  can surface the message. */
+  organize: (action: string) =>
+    request<OrganizeResult>('/api/organize', json({ action })),
+
+  /** Reverse the last organize action; returns how many moves were undone. */
+  undo: () => request<{ undone: number }>('/api/undo', { method: 'POST' }),
 }

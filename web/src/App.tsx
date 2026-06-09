@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { api } from './api'
-import type { FinderFolder, Library } from './types'
+import { api, ApiError } from './api'
+import type { DuplicateGroup, FinderFolder, Library } from './types'
 import { ArrowLeft, FolderIcon } from './components/icons'
 
 /* ─────────────────────────────────────────────────────────────
@@ -13,6 +13,12 @@ import { ArrowLeft, FolderIcon } from './components/icons'
    ───────────────────────────────────────────────────────────── */
 
 type Screen = 'picker' | 'folder'
+
+/** Repeats beyond the single keeper in each group — the number "Find
+ *  duplicates" would move into _duplicates/. */
+function extrasOf(groups: DuplicateGroup[]): number {
+  return groups.reduce((sum, g) => sum + Math.max(g.ids.length - 1, 0), 0)
+}
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('picker')
@@ -29,6 +35,8 @@ export default function App() {
   // ── State B — controlling ──────────────────────────────────
   const [library, setLibrary] = useState<Library | null>(null)
   const [dupeGroups, setDupeGroups] = useState<number>(0)
+  // Count of duplicate *extras* (repeats beyond the one kept per group).
+  const [dupeExtras, setDupeExtras] = useState<number>(0)
 
   // ── Picker: (re)scan Finder ────────────────────────────────
   const scanFinder = useCallback(() => {
@@ -54,6 +62,7 @@ export default function App() {
     ])
     setLibrary(lib)
     setDupeGroups(dupes.length)
+    setDupeExtras(extrasOf(dupes))
   }, [])
 
   // ── Boot: jump straight to State B if a folder is active ───
@@ -65,6 +74,7 @@ export default function App() {
           setLibrary(lib)
           const dupes = await api.duplicates().catch(() => [])
           setDupeGroups(dupes.length)
+          setDupeExtras(extrasOf(dupes))
           setScreen('folder')
         } else {
           scanFinder()
@@ -126,7 +136,9 @@ export default function App() {
           <Controller
             library={library}
             dupeGroups={dupeGroups}
+            dupeExtras={dupeExtras}
             onChangeFolder={changeFolder}
+            onReload={loadFolder}
           />
         )}
       </div>
@@ -294,27 +306,124 @@ function Picker({
 interface ControllerProps {
   library: Library | null
   dupeGroups: number
+  dupeExtras: number
   onChangeFolder: () => void
+  onReload: () => Promise<void>
 }
 
-function Controller({ library, dupeGroups, onChangeFolder }: ControllerProps) {
+type Action = 'sort_by_date' | 'by_day' | 'by_camera' | 'duplicates'
+
+function Controller({
+  library,
+  dupeGroups,
+  dupeExtras,
+  onChangeFolder,
+  onReload,
+}: ControllerProps) {
   const folder = library?.folder ?? ''
   const name = folder.replace(/\/+$/, '').split('/').pop() || folder || '—'
   const count = library?.count ?? 0
 
+  // null = idle; otherwise the action currently in flight (or 'undo').
+  const [busy, setBusy] = useState<Action | 'undo' | null>(null)
+  const [status, setStatus] = useState<{ text: string; error: boolean } | null>(
+    null,
+  )
+  const working = busy !== null
+
+  const run = useCallback(
+    async (action: Action) => {
+      setBusy(action)
+      setStatus(null)
+      try {
+        const res = await api.organize(action)
+        setStatus({ text: summarize(res), error: false })
+        await onReload()
+      } catch (e) {
+        const code = e instanceof ApiError ? e.status : 0
+        setStatus({
+          text:
+            code === 409
+              ? 'Couldn’t organize: a name already exists (409).'
+              : code === 400
+                ? 'Couldn’t organize: unknown action (400).'
+                : 'Couldn’t organize: something went wrong.',
+          error: true,
+        })
+      } finally {
+        setBusy(null)
+      }
+    },
+    [onReload],
+  )
+
+  const undo = useCallback(async () => {
+    setBusy('undo')
+    setStatus(null)
+    try {
+      const { undone } = await api.undo()
+      setStatus({
+        text:
+          undone === 0
+            ? 'Nothing to undo.'
+            : `Undid ${undone} move${undone === 1 ? '' : 's'}.`,
+        error: false,
+      })
+      await onReload()
+    } catch {
+      setStatus({ text: 'Couldn’t undo.', error: true })
+    } finally {
+      setBusy(null)
+    }
+  }, [onReload])
+
+  const rows: {
+    action: Action
+    label: string
+    desc: string
+    affects: number
+    empty?: boolean
+  }[] = [
+    {
+      action: 'sort_by_date',
+      label: 'Sort by date',
+      desc: 'rename oldest to newest (001_, 002_)',
+      affects: count,
+    },
+    {
+      action: 'by_day',
+      label: 'Group by day',
+      desc: 'into dated folders (2025-12-24/)',
+      affects: count,
+    },
+    {
+      action: 'by_camera',
+      label: 'Group by camera',
+      desc: 'into a folder per camera',
+      affects: count,
+    },
+    {
+      action: 'duplicates',
+      label: 'Find duplicates',
+      desc: 'move repeats into _duplicates/',
+      affects: dupeExtras,
+      empty: dupeExtras === 0,
+    },
+  ]
+
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="relative flex h-full flex-col overflow-y-auto">
       {/* change-folder link, quietly in the corner */}
       <button
         onClick={onChangeFolder}
-        className="absolute left-4 top-4 flex items-center gap-1.5 font-mono text-[11px] text-dim transition-colors hover:text-text"
+        className="absolute left-4 top-4 z-10 flex items-center gap-1.5 font-mono text-[11px] text-dim transition-colors hover:text-text"
       >
         <ArrowLeft size={12} />
         change folder
       </button>
 
-      <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-        <div className="scale-in">
+      <div className="flex flex-1 flex-col items-center justify-center px-8 py-14">
+        <div className="scale-in w-full max-w-[420px] text-center">
           <h1 className="select-none font-serif text-[22px] italic leading-none text-dim">
             phota
           </h1>
@@ -341,8 +450,93 @@ function Controller({ library, dupeGroups, onChangeFolder }: ControllerProps) {
               </>
             )}
           </p>
+
+          {/* ── Organize ─────────────────────────────────────── */}
+          <div className="mt-10 text-left">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
+              Organize
+            </div>
+
+            <ul className="mt-3 border-t border-hairline">
+              {rows.map((r) => {
+                const disabled = working || r.empty
+                return (
+                  <li key={r.action}>
+                    <button
+                      onClick={() => run(r.action)}
+                      disabled={disabled}
+                      className="group flex w-full items-center gap-4 border-b border-hairline px-1 py-3 text-left transition-colors hover:bg-elevated disabled:cursor-default disabled:hover:bg-transparent"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-sans text-[13.5px] text-text transition-colors group-hover:text-amber group-disabled:text-dim">
+                          {r.label}
+                        </span>
+                        <span className="mt-0.5 block truncate font-mono text-[10.5px] text-dim">
+                          {r.desc}
+                        </span>
+                      </span>
+                      <span className="flex-none font-mono text-[10.5px]">
+                        {r.empty ? (
+                          <span className="text-faint">none found</span>
+                        ) : (
+                          <span className="text-amber">{r.affects}</span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <button
+                onClick={undo}
+                disabled={working}
+                className="border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:cursor-default disabled:opacity-40"
+              >
+                Undo last
+              </button>
+
+              <div className="min-w-0 flex-1 text-right">
+                {working ? (
+                  <span className="font-mono text-[11px] text-amber">Working…</span>
+                ) : status ? (
+                  <span
+                    className={`font-mono text-[11px] ${
+                      status.error ? 'text-amber' : 'text-dim'
+                    }`}
+                  >
+                    {status.text}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   )
+}
+
+/** Human-readable status line from an organize response. */
+function summarize(res: {
+  action: string
+  renamed?: number
+  moved?: number
+  folders?: number
+}): string {
+  if (res.action === 'sort_by_date') {
+    const n = res.renamed ?? 0
+    return `Renamed ${n} file${n === 1 ? '' : 's'}.`
+  }
+  if (res.action === 'by_day' || res.action === 'by_camera') {
+    const n = res.moved ?? 0
+    const f = res.folders ?? 0
+    return `Moved ${n} into ${f} folder${f === 1 ? '' : 's'}.`
+  }
+  // duplicates
+  const n = res.moved ?? 0
+  return n === 0
+    ? 'No repeats to move.'
+    : `Moved ${n} repeat${n === 1 ? '' : 's'}.`
 }
