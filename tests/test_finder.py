@@ -5,10 +5,19 @@ from tests.fixtures import make_jpeg
 
 
 def test_finder_folders_listed(monkeypatch, tmp_path):
-    monkeypatch.setattr(server, 'list_finder_folders', lambda: [str(tmp_path / 'Downloads')])
+    d = tmp_path / 'Downloads'; d.mkdir()
+    monkeypatch.setattr(server, 'detect_finder_folders', lambda: ([str(d)], None))
     c = TestClient(create_app(None))
     r = c.get('/api/finder-folders').json()
-    assert r[0]['path'].endswith('Downloads') and r[0]['name'] == 'Downloads'
+    assert r['error'] is None
+    assert r['folders'][0]['path'] == str(d) and r['folders'][0]['name'] == 'Downloads'
+
+
+def test_finder_folders_permission_error(monkeypatch):
+    monkeypatch.setattr(server, 'detect_finder_folders', lambda: ([], 'permission'))
+    c = TestClient(create_app(None))
+    r = c.get('/api/finder-folders').json()
+    assert r['error'] == 'permission' and r['folders'] == []
 
 
 def test_open_folder_switches_active(monkeypatch, tmp_path):

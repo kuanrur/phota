@@ -1,309 +1,347 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
-import type { DuplicateGroup, FinderFolder, Library, Photo } from './types'
-import { FolderPicker } from './components/FolderPicker'
-import { Grid } from './components/Grid'
-import { ActionBar } from './components/ActionBar'
-import { ArrowLeft, UndoIcon } from './components/icons'
+import type { FinderFolder, Library } from './types'
+import { ArrowLeft, FolderIcon } from './components/icons'
 
 /* ─────────────────────────────────────────────────────────────
-   phota — finder-folder cleanup controller
-   A small window that organizes the photo folder you have open
-   in Finder. Two screens: a folder picker, and a drag-to-reorder
-   grid that flags duplicates and sorts photos into subfolders.
+   phota — minimal Finder-folder controller.
+
+   A tiny utility window with exactly two states:
+     A · Picker     — choose a folder (from Finder, or a pasted path)
+     B · Controlling — show ONLY which folder is selected
+   No photo grid, no thumbnails. Just the selected folder.
    ───────────────────────────────────────────────────────────── */
 
-type Screen = 'picker' | 'grid'
+type Screen = 'picker' | 'folder'
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>('picker')
   const [booting, setBooting] = useState(true)
 
-  // ── Screen 1 state ─────────────────────────────────────────
+  // ── State A — picker ───────────────────────────────────────
   const [folders, setFolders] = useState<FinderFolder[]>([])
-  const [foldersLoading, setFoldersLoading] = useState(false)
+  const [finderError, setFinderError] = useState<string | null>(null)
+  const [scanning, setScanning] = useState(false)
   const [busyPath, setBusyPath] = useState<string | null>(null)
+  const [manualPath, setManualPath] = useState('')
+  const [pickError, setPickError] = useState<string | null>(null)
 
-  // ── Screen 2 state ─────────────────────────────────────────
+  // ── State B — controlling ──────────────────────────────────
   const [library, setLibrary] = useState<Library | null>(null)
-  const [photos, setPhotos] = useState<Photo[]>([])
-  const [dupes, setDupes] = useState<DuplicateGroup[]>([])
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [busy, setBusy] = useState(false)
-  const [flash, setFlash] = useState<string | null>(null)
+  const [dupeGroups, setDupeGroups] = useState<number>(0)
 
-  // The on-disk order, captured each time we (re)load photos. The grid order
-  // is "dirty" when `photos` no longer matches this baseline.
-  const [baseline, setBaseline] = useState<string[]>([])
-  const anchorRef = useRef<string | null>(null) // for shift-click ranges
-
-  const showFlash = useCallback((msg: string) => {
-    setFlash(msg)
-    setTimeout(() => setFlash(null), 2400)
-  }, [])
-
-  // ── Loading ────────────────────────────────────────────────
-  const loadFinderFolders = useCallback(() => {
-    setFoldersLoading(true)
+  // ── Picker: (re)scan Finder ────────────────────────────────
+  const scanFinder = useCallback(() => {
+    setScanning(true)
     api
       .finderFolders()
-      .then(setFolders)
-      .catch(() => setFolders([]))
-      .finally(() => setFoldersLoading(false))
+      .then((res) => {
+        setFolders(res.folders)
+        setFinderError(res.error)
+      })
+      .catch(() => {
+        setFolders([])
+        setFinderError(null)
+      })
+      .finally(() => setScanning(false))
   }, [])
 
-  const loadFolderData = useCallback(async () => {
-    const [lib, ph, dup] = await Promise.all([
+  // ── Controlling: load folder summary + duplicate count ─────
+  const loadFolder = useCallback(async () => {
+    const [lib, dupes] = await Promise.all([
       api.library(),
-      api.photos(),
-      api.duplicates().catch(() => [] as DuplicateGroup[]),
+      api.duplicates().catch(() => []),
     ])
     setLibrary(lib)
-    setPhotos(ph)
-    setDupes(dup)
-    setBaseline(ph.map((p) => p.id))
-    setSelected(new Set())
-    anchorRef.current = null
-    return lib
+    setDupeGroups(dupes.length)
   }, [])
 
-  // Reload only photos + duplicates after a disk mutation (folder unchanged).
-  const reloadPhotos = useCallback(async () => {
-    const [ph, dup, lib] = await Promise.all([
-      api.photos(),
-      api.duplicates().catch(() => [] as DuplicateGroup[]),
-      api.library(),
-    ])
-    setPhotos(ph)
-    setDupes(dup)
-    setLibrary(lib)
-    setBaseline(ph.map((p) => p.id))
-    setSelected(new Set())
-    anchorRef.current = null
-  }, [])
-
-  // ── Boot: jump to grid if a folder is already active ───────
+  // ── Boot: jump straight to State B if a folder is active ───
   useEffect(() => {
     api
       .library()
       .then(async (lib) => {
         if (lib.folder) {
-          await loadFolderData()
-          setScreen('grid')
+          setLibrary(lib)
+          const dupes = await api.duplicates().catch(() => [])
+          setDupeGroups(dupes.length)
+          setScreen('folder')
         } else {
-          loadFinderFolders()
+          scanFinder()
         }
       })
-      .catch(() => loadFinderFolders())
+      .catch(() => scanFinder())
       .finally(() => setBooting(false))
-  }, [loadFolderData, loadFinderFolders])
+  }, [scanFinder])
 
-  // ── Screen 1 → 2: adopt a folder ───────────────────────────
-  const pickFolder = useCallback(
+  // ── Adopt a folder → State B ───────────────────────────────
+  const open = useCallback(
     async (path: string) => {
+      if (!path.trim()) return
       setBusyPath(path)
+      setPickError(null)
       try {
         await api.openFolder(path)
-        await loadFolderData()
-        setScreen('grid')
+        await loadFolder()
+        setScreen('folder')
       } catch {
-        showFlash('could not open folder')
+        setPickError('could not open that folder')
       } finally {
         setBusyPath(null)
       }
     },
-    [loadFolderData, showFlash],
+    [loadFolder],
   )
 
-  const backToPicker = useCallback(() => {
+  // ── Back to State A — re-pick regardless of server's last folder ─
+  const changeFolder = useCallback(() => {
+    setLibrary(null)
+    setManualPath('')
+    setPickError(null)
     setScreen('picker')
-    setSelected(new Set())
-    loadFinderFolders()
-  }, [loadFinderFolders])
-
-  // ── Duplicates derived sets ────────────────────────────────
-  const dupeIds = useMemo(() => {
-    const s = new Set<string>()
-    for (const g of dupes) for (const id of g.ids) s.add(id)
-    return s
-  }, [dupes])
-
-  // ── Order dirtiness ────────────────────────────────────────
-  const orderDirty = useMemo(() => {
-    if (baseline.length !== photos.length) return false
-    return photos.some((p, i) => p.id !== baseline[i])
-  }, [photos, baseline])
-
-  // ── Local reorder (from drag) ──────────────────────────────
-  const handleReorder = useCallback((orderedIds: string[]) => {
-    setPhotos((prev) => {
-      const byId = new Map(prev.map((p) => [p.id, p]))
-      return orderedIds.map((id) => byId.get(id)!).filter(Boolean)
-    })
-  }, [])
-
-  // ── Selection (click, shift-range, cmd/ctrl-toggle) ────────
-  const handleSelectTile = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      const ids = photos.map((p) => p.id)
-      setSelected((prev) => {
-        const next = new Set(prev)
-        if (e.shiftKey && anchorRef.current) {
-          const a = ids.indexOf(anchorRef.current)
-          const b = ids.indexOf(id)
-          if (a >= 0 && b >= 0) {
-            const [lo, hi] = a < b ? [a, b] : [b, a]
-            for (let i = lo; i <= hi; i++) next.add(ids[i])
-          }
-        } else if (e.metaKey || e.ctrlKey) {
-          if (next.has(id)) next.delete(id)
-          else next.add(id)
-          anchorRef.current = id
-        } else {
-          // plain click: toggle, collapsing any multi-selection to just this.
-          if (next.size === 1 && next.has(id)) {
-            next.clear()
-          } else {
-            next.clear()
-            next.add(id)
-          }
-          anchorRef.current = id
-        }
-        return next
-      })
-    },
-    [photos],
-  )
-
-  const selectAllRepeats = useCallback(() => {
-    setSelected(() => {
-      const next = new Set<string>()
-      for (const g of dupes)
-        for (const id of g.ids) if (id !== g.keeper) next.add(id)
-      return next
-    })
-  }, [dupes])
-
-  // ── Disk mutations ─────────────────────────────────────────
-  const applyOrder = useCallback(async () => {
-    setBusy(true)
-    try {
-      const res = await api.reorder(photos.map((p) => p.id))
-      await reloadPhotos()
-      showFlash(`renamed ${res.renamed}`)
-    } catch {
-      showFlash('reorder failed')
-    } finally {
-      setBusy(false)
-    }
-  }, [photos, reloadPhotos, showFlash])
-
-  const sortInto = useCallback(
-    async (name: string) => {
-      const ids = [...selected]
-      if (ids.length === 0) return
-      setBusy(true)
-      try {
-        const res = await api.sortInto(name, ids)
-        await reloadPhotos()
-        showFlash(`moved ${res.moved} → ${res.folder}`)
-      } catch {
-        showFlash('move failed (name taken?)')
-      } finally {
-        setBusy(false)
-      }
-    },
-    [selected, reloadPhotos, showFlash],
-  )
-
-  const undo = useCallback(async () => {
-    setBusy(true)
-    try {
-      const res = await api.undo()
-      await reloadPhotos()
-      showFlash(res.undone ? `undid ${res.undone}` : 'nothing to undo')
-    } catch {
-      showFlash('undo failed')
-    } finally {
-      setBusy(false)
-    }
-  }, [reloadPhotos, showFlash])
+    scanFinder()
+  }, [scanFinder])
 
   // ── Render ─────────────────────────────────────────────────
   return (
     <div className="flex h-full justify-center bg-ink p-2">
-      <div className="flex h-full w-full max-w-[980px] flex-col overflow-hidden rounded-[10px] border border-hairline bg-ink shadow-2xl">
+      <div className="flex h-full w-full max-w-[620px] flex-col overflow-hidden rounded-[10px] border border-hairline bg-ink shadow-2xl">
         {booting ? (
           <div className="flex h-full items-center justify-center font-mono text-[12px] text-faint">
             loading…
           </div>
         ) : screen === 'picker' ? (
-          <FolderPicker
+          <Picker
             folders={folders}
-            loading={foldersLoading}
+            error={finderError}
+            scanning={scanning}
             busyPath={busyPath}
-            onPick={pickFolder}
-            onReload={loadFinderFolders}
+            manualPath={manualPath}
+            pickError={pickError}
+            onManualChange={setManualPath}
+            onPick={open}
+            onRescan={scanFinder}
           />
         ) : (
-          <>
-            {/* ── Header ─────────────────────────────────────── */}
-            <header className="flex items-center gap-4 border-b border-hairline px-5 py-3">
-              <button
-                onClick={backToPicker}
-                className="flex flex-none items-center gap-1.5 font-mono text-[11px] text-dim transition-colors hover:text-text"
-              >
-                <ArrowLeft size={12} />
-                folders
-              </button>
-
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-serif text-[16px] italic text-text">
-                  {library?.folder
-                    ? library.folder.replace(/\/+$/, '').split('/').pop()
-                    : '—'}
-                </div>
-                <div className="flex items-center gap-2 truncate font-mono text-[10.5px] text-dim">
-                  <span className="truncate">{library?.folder}</span>
-                  <span className="flex-none text-faint">·</span>
-                  <span className="flex-none text-faint">
-                    {photos.length} photo{photos.length === 1 ? '' : 's'}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                onClick={undo}
-                disabled={busy}
-                className="flex flex-none items-center gap-1.5 border border-hairline px-2.5 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:cursor-default disabled:opacity-50"
-              >
-                <UndoIcon size={12} />
-                Undo
-              </button>
-            </header>
-
-            {/* ── Grid ───────────────────────────────────────── */}
-            <Grid
-              photos={photos}
-              selected={selected}
-              dupeIds={dupeIds}
-              dupeGroupCount={dupes.length}
-              onReorder={handleReorder}
-              onSelectTile={handleSelectTile}
-              onSelectAllRepeats={selectAllRepeats}
-            />
-
-            {/* ── Toolbar ────────────────────────────────────── */}
-            <ActionBar
-              selectedCount={selected.size}
-              orderDirty={orderDirty}
-              busy={busy}
-              flash={flash}
-              onApplyOrder={applyOrder}
-              onSortInto={sortInto}
-            />
-          </>
+          <Controller
+            library={library}
+            dupeGroups={dupeGroups}
+            onChangeFolder={changeFolder}
+          />
         )}
+      </div>
+    </div>
+  )
+}
+
+/* ─── State A — Picker ───────────────────────────────────────── */
+
+interface PickerProps {
+  folders: FinderFolder[]
+  error: string | null
+  scanning: boolean
+  busyPath: string | null
+  manualPath: string
+  pickError: string | null
+  onManualChange: (v: string) => void
+  onPick: (path: string) => void
+  onRescan: () => void
+}
+
+function Picker({
+  folders,
+  error,
+  scanning,
+  busyPath,
+  manualPath,
+  pickError,
+  onManualChange,
+  onPick,
+  onRescan,
+}: PickerProps) {
+  const busy = busyPath !== null
+  const permission = error === 'permission'
+
+  return (
+    <div className="flex h-full items-center justify-center overflow-y-auto px-7 py-8">
+      <div className="scale-in w-full max-w-[460px]">
+        <h1 className="select-none font-serif text-[34px] italic leading-none text-text">
+          phota
+        </h1>
+        <p className="mt-3 font-sans text-[13px] text-dim">
+          pick a folder to organize
+        </p>
+
+        <div className="mt-7">
+          {scanning ? (
+            <div className="font-mono text-[12px] text-faint">reading Finder…</div>
+          ) : permission ? (
+            <div className="border border-hairline bg-panel px-5 py-5">
+              <p className="font-sans text-[13px] leading-relaxed text-dim">
+                phota needs permission to read your Finder folders. Open{' '}
+                <span className="text-text">System Settings</span> →{' '}
+                <span className="text-text">Privacy &amp; Security</span> →{' '}
+                <span className="text-text">Automation</span> and allow your
+                terminal (Terminal/iTerm) to control Finder, then rescan.
+              </p>
+              <button
+                onClick={onRescan}
+                disabled={busy}
+                className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:opacity-50"
+              >
+                Rescan
+              </button>
+            </div>
+          ) : folders.length === 0 ? (
+            <div className="border border-hairline bg-panel px-5 py-5">
+              <p className="font-sans text-[13px] leading-relaxed text-dim">
+                No folder open in Finder. Open one, or paste a path below.
+              </p>
+              <button
+                onClick={onRescan}
+                disabled={busy}
+                className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:opacity-50"
+              >
+                Rescan
+              </button>
+            </div>
+          ) : (
+            <>
+              <ul className="flex flex-col gap-2">
+                {folders.map((f, i) => {
+                  const opening = busyPath === f.path
+                  return (
+                    <li
+                      key={f.path}
+                      className="tile-enter"
+                      style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}
+                    >
+                      <button
+                        disabled={busy}
+                        onClick={() => onPick(f.path)}
+                        className="group flex w-full items-center gap-3 border border-hairline bg-panel px-4 py-3 text-left transition-colors hover:border-amber-ring hover:bg-elevated disabled:cursor-default disabled:opacity-60"
+                      >
+                        <span className="flex-none text-dim transition-colors group-hover:text-amber">
+                          <FolderIcon size={16} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-sans text-[14px] text-text">
+                            {f.name}
+                          </span>
+                          <span className="block truncate font-mono text-[10.5px] text-dim">
+                            {f.path}
+                          </span>
+                        </span>
+                        {opening && (
+                          <span className="flex-none font-mono text-[10px] text-amber">
+                            opening…
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              <button
+                onClick={onRescan}
+                disabled={busy}
+                className="mt-5 font-mono text-[11px] text-faint transition-colors hover:text-dim disabled:opacity-50"
+              >
+                ↻ rescan Finder
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* Manual fallback — always available. */}
+        <div className="mt-8 border-t border-hairline pt-6">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              onPick(manualPath)
+            }}
+            className="flex items-center gap-2"
+          >
+            <input
+              type="text"
+              value={manualPath}
+              onChange={(e) => onManualChange(e.target.value)}
+              placeholder="or paste a folder path"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="settings-input flex-1"
+            />
+            <button
+              type="submit"
+              disabled={busy || !manualPath.trim()}
+              className="flex-none border border-hairline px-3.5 py-2 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:cursor-default disabled:opacity-40"
+            >
+              Open
+            </button>
+          </form>
+          {pickError && (
+            <p className="mt-2 font-mono text-[11px] text-amber">{pickError}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─── State B — Controller (shows ONLY the selected folder) ──── */
+
+interface ControllerProps {
+  library: Library | null
+  dupeGroups: number
+  onChangeFolder: () => void
+}
+
+function Controller({ library, dupeGroups, onChangeFolder }: ControllerProps) {
+  const folder = library?.folder ?? ''
+  const name = folder.replace(/\/+$/, '').split('/').pop() || folder || '—'
+  const count = library?.count ?? 0
+
+  return (
+    <div className="relative flex h-full flex-col">
+      {/* change-folder link, quietly in the corner */}
+      <button
+        onClick={onChangeFolder}
+        className="absolute left-4 top-4 flex items-center gap-1.5 font-mono text-[11px] text-dim transition-colors hover:text-text"
+      >
+        <ArrowLeft size={12} />
+        change folder
+      </button>
+
+      <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+        <div className="scale-in">
+          <h1 className="select-none font-serif text-[22px] italic leading-none text-dim">
+            phota
+          </h1>
+
+          <div
+            className="mt-7 truncate font-serif text-[30px] italic leading-tight text-text"
+            title={name}
+          >
+            {name}
+          </div>
+          <div
+            className="mx-auto mt-2 max-w-[480px] truncate font-mono text-[11px] text-dim"
+            title={folder}
+          >
+            {folder}
+          </div>
+
+          <p className="mt-8 font-mono text-[11px] text-faint">
+            {count} photo{count === 1 ? '' : 's'}
+            {dupeGroups > 0 && (
+              <>
+                {' · '}
+                {dupeGroups} set{dupeGroups === 1 ? '' : 's'} of repeats
+              </>
+            )}
+          </p>
+        </div>
       </div>
     </div>
   )

@@ -1,16 +1,8 @@
-export interface Photo {
-  id: string
-  filename: string
-  captured_at: string | null
-  camera: string | null
-  lens: string | null
-  series_id: number | null
-  sharpness: number | null
-  keep: boolean | null
-  albums: string[]
-  thumb_url: string
-}
+/* ─────────────────────────────────────────────────────────────
+   phota — types for the minimal folder controller.
+   ───────────────────────────────────────────────────────────── */
 
+/** Summary of the active folder. `folder` is null when none is open. */
 export interface Library {
   folder: string | null
   count: number
@@ -19,47 +11,17 @@ export interface Library {
   series: number
 }
 
-export interface Album {
-  name: string
-  count: number
-}
-
-export interface Series {
-  series_id: number
-  photo_ids: string[]
-  suggested_keeper_id: string
-}
-
-export interface AiStatus {
-  configured: boolean
-  provider: string | null
-  vision: boolean | null
-}
-
-export type KeepFilter = 'keep' | 'reject' | 'undecided'
-
-export interface Filters {
-  camera?: string
-  keep?: KeepFilter
-  album?: string
-  burstsOnly?: boolean
-  search?: string
-}
-
-export type ExportScope = 'keepers' | 'all' | `album:${string}`
-export type ExportMode = 'copy' | 'move'
-
-export interface ExportResult {
-  count: number
-  manifest_path?: string
-}
-
-export type AiProvider = 'claude' | 'gpt' | 'local'
-
 /** A folder currently open in a Finder window. */
 export interface FinderFolder {
   path: string
   name: string
+}
+
+/** Response from GET /api/finder-folders. `error` is 'permission' when macOS
+ *  Automation access to Finder is denied. */
+export interface FinderFoldersResponse {
+  folders: FinderFolder[]
+  error: string | null
 }
 
 /** A set of near-identical photos; `keeper` is the id to keep. */

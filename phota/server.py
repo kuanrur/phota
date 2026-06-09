@@ -60,37 +60,71 @@ def _finder_url_to_path(url: str):
     return unquote(parsed.path).rstrip("/") or "/"
 
 
-def list_finder_folders():
-    """Return absolute paths of folders open in Finder windows (front first).
+# Detect folders from Finder via three sources, most-specific first. We read
+# the `URL of` each target rather than coercing to `alias`: inside a
+# `repeat with x in (every ...)` the loop var is a list specifier and
+# `x as alias` raises "Can't make ... into type alias", which silently broke
+# the old detector.
+_SCRIPT_SELECTION = (
+    'tell application "Finder"\n'
+    "set out to {}\n"
+    "repeat with anItem in (get selection)\n"
+    "try\n"
+    "set end of out to (URL of (anItem as alias))\n"
+    "end try\n"
+    "end repeat\n"
+    "set AppleScript's text item delimiters to linefeed\n"
+    "return out as text\n"
+    "end tell"
+)
+_SCRIPT_FRONT = 'tell application "Finder" to get URL of (insertion location as alias)'
+_SCRIPT_WINDOWS = (
+    'tell application "Finder"\n'
+    "set theURLs to URL of (target of every Finder window)\n"
+    "set AppleScript's text item delimiters to linefeed\n"
+    "return theURLs as text\n"
+    "end tell"
+)
 
-    Uses `URL of (target of every Finder window)` rather than coercing each
-    window's target to an alias: inside `repeat with w in (every Finder window)`
-    the loop variable is a list specifier, and `target of w as alias` raises
-    "Can't make ... into type alias", so the old loop silently returned nothing.
-    Reading the URL of the targets sidesteps that and also handles spaces and
-    smart/virtual locations (which we filter out by requiring a real directory).
-    """
+
+def _run_osascript(script):
+    """Return (stdout, error). error is 'permission' when Finder access is
+    blocked, else None. Non-permission failures return ('', None)."""
     import subprocess
 
-    script = (
-        'tell application "Finder"\n'
-        "set theURLs to URL of (target of every Finder window)\n"
-        "set AppleScript's text item delimiters to linefeed\n"
-        "return theURLs as text\n"
-        "end tell"
-    )
     try:
         res = subprocess.run(
             ["osascript", "-e", script], capture_output=True, text=True, timeout=5
         )
     except Exception:
-        return []
+        return "", None
+    if res.returncode != 0:
+        err = res.stderr or ""
+        if "-1743" in err or "Not authorized" in err:
+            return "", "permission"
+        return "", None
+    return res.stdout, None
+
+
+def detect_finder_folders():
+    """Return (paths, error) for folders the user has selected/open in Finder.
+
+    Order: a highlighted folder selection, then the front window's folder, then
+    every other open window. `error` is 'permission' when macOS Automation
+    access to Finder is denied and nothing could be read.
+    """
     paths: list[str] = []
-    for line in res.stdout.splitlines():
-        p = _finder_url_to_path(line)
-        if p and os.path.isdir(p) and p not in paths:
-            paths.append(p)
-    return paths
+    permission_blocked = False
+    for script in (_SCRIPT_SELECTION, _SCRIPT_FRONT, _SCRIPT_WINDOWS):
+        out, err = _run_osascript(script)
+        if err == "permission":
+            permission_blocked = True
+        for line in (out or "").splitlines():
+            p = _finder_url_to_path(line)
+            if p and os.path.isdir(p) and p not in paths:
+                paths.append(p)
+    error = "permission" if (permission_blocked and not paths) else None
+    return paths, error
 
 
 def _photo_dict(idx, p) -> dict:
@@ -122,10 +156,14 @@ def create_app(folder: str | None = None) -> FastAPI:
 
     @app.get("/api/finder-folders")
     def finder_folders():
-        return [
-            {"path": p, "name": os.path.basename(p.rstrip("/")) or p}
-            for p in list_finder_folders()
-        ]
+        paths, error = detect_finder_folders()
+        return {
+            "folders": [
+                {"path": p, "name": os.path.basename(p.rstrip("/")) or p}
+                for p in paths
+            ],
+            "error": error,
+        }
 
     @app.post("/api/open-folder")
     def open_folder(body: FolderBody):

@@ -38,7 +38,7 @@ def open_app_window(url: str) -> None:
                         binpath,
                         f"--app={url}",
                         f"--user-data-dir={profile}",
-                        "--window-size=980,700",
+                        "--window-size=620,460",
                         "--no-first-run",
                         "--no-default-browser-check",
                     ],
