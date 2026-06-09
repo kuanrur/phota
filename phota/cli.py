@@ -52,9 +52,10 @@ def open_app_window(url: str) -> None:
 
 
 def launch(folder=None, open_browser=True, serve=True):
-    # When a folder is given (`phota <dir>`), pre-index it and open straight to it.
-    # When none is given (bare `phota`), open with no active folder so the
-    # controller shows the Finder-folder picker and the user chooses.
+    # When a folder is given (`phota <dir>`), open straight to it. Indexing is
+    # triggered by the UI via /api/open-folder so a big folder no longer blocks
+    # the window from appearing. When none is given (bare `phota`), open with no
+    # active folder so the controller shows the Finder-folder picker.
     if folder is not None:
         folder = os.path.abspath(folder)
         # Per-folder library: point PHOTA_DB at the folder's own db so different
@@ -68,9 +69,6 @@ def launch(folder=None, open_browser=True, serve=True):
             p = str(library_db_path(folder))
             os.environ["PHOTA_DB"] = p
             os.environ["_PHOTA_DB_OWNER"] = p
-        from phota.engine import build_index
-
-        build_index(folder)
     fastapi_app = create_app(folder)
     if serve:
         import socket

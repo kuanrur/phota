@@ -38,10 +38,14 @@ def _analyze(photo):
     return photo
 
 
-def build_index(directory, db_path=None) -> dict:
+def build_index(directory, db_path=None, progress=None) -> dict:
     """Scan a directory and update the index incrementally.
 
     Returns stats: {scanned, analyzed, skipped}.
+
+    `progress`, if given, is called as progress(done, total) once after the set
+    of new/changed photos is computed and again after each upsert. The upsert
+    loop runs on the single calling thread, so no locking is needed.
     """
     idx = Index(db_path)
     idx.init_schema()
@@ -57,11 +61,15 @@ def build_index(directory, db_path=None) -> dict:
             to_analyze.append(photo)
 
     analyzed = 0
+    if progress:
+        progress(0, len(to_analyze))
     if to_analyze:
         with ThreadPoolExecutor(max_workers=_ANALYZE_WORKERS) as ex:
             for photo in ex.map(_analyze, to_analyze):
                 idx.upsert_photo(photo)
                 analyzed += 1
+                if progress:
+                    progress(analyzed, len(to_analyze))
 
     pruned = idx.prune({p.id for p in found})
 

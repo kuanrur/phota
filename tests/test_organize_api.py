@@ -9,7 +9,7 @@ def _client(monkeypatch, tmp_path, photos):
     for name, kw in photos:
         make_jpeg(src / name, **kw)
     c = TestClient(create_app(None))
-    c.post("/api/open-folder", json={"path": str(src)})
+    c.post("/api/open-folder", json={"path": str(src), "wait": True})
     return c, src
 
 
@@ -51,7 +51,7 @@ def test_duplicates_moved(monkeypatch, tmp_path):
         ("a.jpg", {"captured": "2025:12:18 00:15:00", "sharp": True}),
     ])
     shutil.copy2(src / "a.jpg", src / "a_copy.jpg")  # exact duplicate
-    c.post("/api/open-folder", json={"path": str(src)})  # re-index to pick up the copy
+    c.post("/api/open-folder", json={"path": str(src), "wait": True})  # re-index to pick up the copy
     r = c.post("/api/organize", json={"action": "duplicates"})
     assert r.json()["moved"] == 1
     assert (src / "_duplicates").exists() and len(list((src / "_duplicates").glob("*.jpg"))) == 1

@@ -27,6 +27,7 @@ class AiSettings(BaseModel):
 
 class FolderBody(BaseModel):
     path: str
+    wait: bool = False
 
 
 class OrderBody(BaseModel):
@@ -152,6 +153,14 @@ def create_app(folder: str | None = None) -> FastAPI:
     app.state.db_path = os.environ.get("PHOTA_DB") or (
         str(library_db_path(folder)) if folder else None
     )
+    app.state.index_job = {
+        "running": False,
+        "done": 0,
+        "total": 0,
+        "folder": None,
+        "count": None,
+        "error": None,
+    }
 
     def _index() -> Index:
         idx = Index(app.state.db_path)
@@ -173,10 +182,47 @@ def create_app(folder: str | None = None) -> FastAPI:
     def open_folder(body: FolderBody):
         folder = os.path.abspath(os.path.expanduser(body.path))
         dbp = str(library_db_path(folder))
-        build_index(folder, db_path=dbp)
+        if app.state.index_job["running"]:
+            raise HTTPException(status_code=409, detail="indexing in progress")
         app.state.folder = folder
         app.state.db_path = dbp
-        return {"folder": folder, "count": len(_index().all_photos())}
+        job = {
+            "running": True,
+            "done": 0,
+            "total": 0,
+            "folder": folder,
+            "count": None,
+            "error": None,
+        }
+        app.state.index_job = job
+
+        def _progress(done, total):
+            job["done"] = done
+            job["total"] = total
+
+        def _run():
+            try:
+                build_index(folder, db_path=dbp, progress=_progress)
+                job["count"] = len(Index(dbp).all_photos())
+            except Exception as e:
+                job["error"] = str(e)
+            finally:
+                job["running"] = False
+
+        if body.wait:
+            _run()
+            if job["error"]:
+                raise HTTPException(status_code=500, detail=job["error"])
+            return {"folder": folder, "count": job["count"]}
+
+        import threading
+
+        threading.Thread(target=_run, daemon=True).start()
+        return {"folder": folder, "indexing": True}
+
+    @app.get("/api/index-status")
+    def index_status():
+        return app.state.index_job
 
     @app.get("/api/library")
     def library():

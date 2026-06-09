@@ -26,7 +26,7 @@ def test_open_folder_switches_active(monkeypatch, tmp_path):
     make_jpeg(src / 'a.jpg', captured='2025:12:18 00:15:00')
     make_jpeg(src / 'b.jpg', captured='2025:12:18 00:16:00')
     c = TestClient(create_app(None))
-    r = c.post('/api/open-folder', json={'path': str(src)})
+    r = c.post('/api/open-folder', json={'path': str(src), 'wait': True})
     assert r.status_code == 200 and r.json()['count'] == 2
     photos = c.get('/api/photos').json()
     assert len(photos) == 2

@@ -10,10 +10,12 @@ from tests.fixtures import make_jpeg
 
 def test_launch_builds_index_and_returns_app(photo_dir):
     make_jpeg(photo_dir / 'a.jpg', captured='2025:12:18 00:15:00')
+    # launch() no longer pre-indexes; the UI triggers indexing via open-folder.
     fastapi_app, folder = launch(str(photo_dir), open_browser=False, serve=False)
-    assert len(Index().all_photos()) >= 1
     assert folder == str(photo_dir)
     c = TestClient(fastapi_app)
+    r = c.post('/api/open-folder', json={'path': str(photo_dir), 'wait': True})
+    assert r.status_code == 200
     assert c.get('/api/library').json()['count'] >= 1
 
 
@@ -35,13 +37,17 @@ def test_consecutive_launches_use_separate_per_folder_dbs(tmp_path, monkeypatch)
     app1, _ = launch(str(d1), open_browser=False, serve=False)
     # After launching folder1, its per-folder db should be active.
     assert os.environ["PHOTA_DB"] == str(library_db_path(d1))
-    lib1_after_first = TestClient(app1).get("/api/library").json()["count"]
+    c1 = TestClient(app1)
+    c1.post("/api/open-folder", json={"path": str(d1), "wait": True})
+    lib1_after_first = c1.get("/api/library").json()["count"]
     assert lib1_after_first == 1
 
     app2, _ = launch(str(d2), open_browser=False, serve=False)
     # Launching folder2 must switch to folder2's own per-folder db.
     assert os.environ["PHOTA_DB"] == str(library_db_path(d2))
-    lib2 = TestClient(app2).get("/api/library").json()["count"]
+    c2 = TestClient(app2)
+    c2.post("/api/open-folder", json={"path": str(d2), "wait": True})
+    lib2 = c2.get("/api/library").json()["count"]
     assert lib2 == 1
 
     # folder1's index must NOT have been clobbered/pruned by folder2's build.
