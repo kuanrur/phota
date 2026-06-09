@@ -69,6 +69,19 @@ EVENT_GAP_SECONDS = 3 * 60 * 60
 PHASH_SIMILAR_DISTANCE = 10
 # Image extensions we recognize.
 JPEG_EXTS = {".jpg", ".jpeg"}
-RAW_EXTS = {".cr3", ".cr2", ".nef", ".arw", ".raf"}
+RAW_EXTS = {".cr3", ".cr2", ".nef", ".arw", ".raf", ".dng"}
 TIFF_EXTS = {".tif", ".tiff"}
-IMAGE_EXTS = JPEG_EXTS | RAW_EXTS | TIFF_EXTS
+HEIC_EXTS = {".heic", ".heif"}
+# Other raster formats Pillow can decode directly.
+OTHER_RASTER_EXTS = {".png", ".webp", ".gif", ".bmp"}
+# Vector: scanned/counted and date-sorted by mtime, but not decoded (no EXIF,
+# no perceptual hash).
+VECTOR_EXTS = {".svg"}
+IMAGE_EXTS = (
+    JPEG_EXTS
+    | RAW_EXTS
+    | TIFF_EXTS
+    | HEIC_EXTS
+    | OTHER_RASTER_EXTS
+    | VECTOR_EXTS
+)

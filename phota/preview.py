@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+import phota.imageio  # noqa: F401  (registers the HEIF opener)
 from phota.config import RAW_EXTS
 
 _MAX_EDGE = 512

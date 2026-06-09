@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PIL import Image
 
+import phota.imageio  # noqa: F401  (registers the HEIF opener)
 from phota.config import db_path, RAW_EXTS
 from phota.models import Photo
 
