@@ -44,6 +44,12 @@ class OrganizeBody(BaseModel):
     action: str
 
 
+class RenameBody(BaseModel):
+    fmt: str
+    word: str | None = None
+    dry_run: bool = False
+
+
 def reveal_in_finder(path):
     import subprocess
 
@@ -547,6 +553,34 @@ def create_app(folder: str | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(e))
         _rebuild()
         return result
+
+    @app.post("/api/rename")
+    def rename(body: RenameBody):
+        from phota import organize
+        from phota.rename import plan_renames
+
+        if not app.state.folder:
+            raise HTTPException(status_code=400, detail="no active folder")
+        _guard_indexing()
+        photos = _index().all_photos()
+        try:
+            plan = plan_renames(photos, body.fmt, body.word)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if body.dry_run:
+            return {
+                "total": len(plan),
+                "examples": [
+                    {"from": os.path.basename(src), "to": new}
+                    for src, new in plan[:3]
+                ],
+            }
+        try:
+            n = organize.rename_files(app.state.folder, plan)
+        except FileExistsError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        _rebuild()
+        return {"renamed": n}
 
     @app.get("/api/duplicates")
     def duplicates():

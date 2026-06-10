@@ -66,6 +66,59 @@ def apply_order(folder, ordered_paths):
     return len(ops)
 
 
+def rename_files(folder, renames):
+    '''Rename files to new basenames within their OWN directory.
+
+    renames: list of (abs_src, new_basename). Each dest is
+    Path(src).parent / new_basename. Pre-validates BEFORE any move: every src
+    exists; no two dests collide on os.path.normcase(str(dest)).casefold(); a
+    dest may already exist on disk ONLY if that occupant is itself one of the
+    srcs being renamed (it will vacate in phase 1, so the two-phase move makes
+    it safe), otherwise FileExistsError. Then two-phase with full rollback in
+    apply_order's style. Writes ONE undo manifest. Returns number moved.'''
+    folder = Path(folder)
+    pairs = [(Path(src), Path(src).parent / new_name) for src, new_name in renames]
+    # Pre-validate: every source must exist before we move anything.
+    for src, _dest in pairs:
+        if not src.exists():
+            raise FileNotFoundError(str(src))
+    # The set of src slots that will be vacated in phase 1 -- a dest may legally
+    # land on one of these (e.g. a chained swap a->b while b->c).
+    src_keys = {os.path.normcase(str(src)).casefold() for src, _ in pairs}
+    seen = set()
+    for _src, dest in pairs:
+        key = os.path.normcase(str(dest)).casefold()
+        if key in seen:
+            raise FileExistsError(str(dest))
+        # A pre-existing dest is only OK if it is itself one of the srcs we are
+        # about to move out of the way; a genuinely foreign file is refused.
+        if dest.exists() and key not in src_keys:
+            raise FileExistsError(str(dest))
+        seen.add(key)
+    ops = []
+    # phase 1: move to unique temp names (in each file's own directory)
+    temps = []  # list of (tmp_path, dest_path)
+    try:
+        for src, dest in pairs:
+            tmp = src.with_name('.phota_tmp_' + src.name)
+            shutil.move(str(src), str(tmp))
+            temps.append((tmp, dest, src))
+        # phase 2: move temps to their final destinations.
+        for tmp, dest, src in temps:
+            shutil.move(str(tmp), str(dest))
+            ops.append({'from': str(src), 'to': str(dest)})
+    except BaseException:
+        # Roll back: undo any final moves, then restore every temp to source.
+        for op in reversed(ops):
+            shutil.move(op['to'], op['from'])
+        for tmp, _dest, src in temps:
+            if tmp.exists():
+                shutil.move(str(tmp), str(src))
+        raise
+    _write_manifest(folder, ops)
+    return len(ops)
+
+
 def sort_into_folder(folder, subfolder_name, paths):
     '''Create folder/<subfolder_name> and move the given files into it.
     Refuses to overwrite; records an undo manifest. Returns number moved.
