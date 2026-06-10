@@ -5,6 +5,7 @@ import type {
   FinderFolder,
   IndexStatus,
   Library,
+  OrganizeAction,
   RenameFmt,
 } from './types'
 import { ArrowLeft, FolderIcon } from './components/icons'
@@ -495,7 +496,7 @@ interface ControllerProps {
   onReload: () => Promise<void>
 }
 
-type Action = 'sort_by_date' | 'by_day' | 'by_camera' | 'duplicates'
+type Action = OrganizeAction
 type Busy = Action | 'undo' | 'rename' | 'tidy' | 'keep' | null
 
 function Controller({
@@ -584,13 +585,14 @@ function Controller({
 
   // ── Apply a batch rename, then refresh like any other action ──
   const applyRename = useCallback(
-    async (fmt: RenameFmt, word: string) => {
+    async (fmt: RenameFmt, word: string, formats: string[] | undefined) => {
       setBusy('rename')
       setStatus(null)
       try {
         const { renamed } = await api.renameApply(
           fmt,
           fmt === 'custom' ? word : undefined,
+          formats,
         )
         setStatus({
           text: `Renamed ${renamed} photo${renamed === 1 ? '' : 's'}.`,
@@ -676,6 +678,12 @@ function Controller({
       action: 'by_camera',
       label: 'Group by camera',
       desc: 'into a folder per camera',
+      affects: count,
+    },
+    {
+      action: 'by_format',
+      label: 'Group by format',
+      desc: 'into a folder per file type (JPEG/, PNG/)',
       affects: count,
     },
     {
@@ -793,6 +801,7 @@ function Controller({
                   <RenamePanel
                     busy={busy === 'rename'}
                     working={working}
+                    formats={library?.formats ?? {}}
                     onApply={applyRename}
                   />
                 )}
@@ -947,10 +956,16 @@ const RENAME_FORMATS: {
 interface RenamePanelProps {
   busy: boolean
   working: boolean
-  onApply: (fmt: RenameFmt, word: string) => void
+  /** Photo count per file-type label (e.g. { JPEG: 5, PNG: 2 }). */
+  formats: Record<string, number>
+  onApply: (
+    fmt: RenameFmt,
+    word: string,
+    formats: string[] | undefined,
+  ) => void
 }
 
-function RenamePanel({ busy, working, onApply }: RenamePanelProps) {
+function RenamePanel({ busy, working, formats, onApply }: RenamePanelProps) {
   const [fmt, setFmt] = useState<RenameFmt>('date_number')
   const [word, setWord] = useState('')
   const [preview, setPreview] = useState<{
@@ -959,23 +974,46 @@ function RenamePanel({ busy, working, onApply }: RenamePanelProps) {
   } | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
 
+  // ── Scope — which file types to include (all selected by default) ──
+  const allLabels = Object.keys(formats)
+  // Set of *excluded* labels; absence means "included", so a freshly-loaded
+  // folder (and any newly-discovered type) starts fully selected.
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const selected = allLabels.filter((l) => !excluded.has(l))
+  const allSelected = selected.length === allLabels.length
+  const noneSelected = allLabels.length > 0 && selected.length === 0
+  // Omit the param entirely when every type is selected (server treats
+  // omitted = all); otherwise send the explicit selection.
+  const scopeKey = allSelected ? '*' : [...selected].sort().join(',')
+  const scopeFormats = allSelected ? undefined : selected
+
+  const toggleLabel = useCallback((label: string) => {
+    setExcluded((prev) => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label)
+      else next.add(label)
+      return next
+    })
+  }, [])
+
   const needsWord = fmt === 'custom'
   const wordReady = !needsWord || word.trim().length > 0
-  const canApply = wordReady && !working
+  const canApply = wordReady && !working && !noneSelected
 
-  // Dry-run a preview on any format/word change (debounced for custom typing).
-  // All state writes happen inside the timeout — never synchronously in the
-  // effect body — so an empty custom word simply clears the preview deferred.
+  // Dry-run a preview on any format/word/scope change (debounced for custom
+  // typing). All state writes happen inside the timeout — never synchronously
+  // in the effect body — so an empty custom word (or empty scope) simply
+  // clears the preview deferred.
   useEffect(() => {
     let live = true
     const handle = window.setTimeout(() => {
-      if (!wordReady) {
+      if (!wordReady || noneSelected) {
         setPreview(null)
         setPreviewError(null)
         return
       }
       api
-        .renamePreview(fmt, needsWord ? word : undefined)
+        .renamePreview(fmt, needsWord ? word : undefined, scopeFormats)
         .then((res) => {
           if (!live) return
           setPreview(res)
@@ -991,10 +1029,38 @@ function RenamePanel({ busy, working, onApply }: RenamePanelProps) {
       live = false
       window.clearTimeout(handle)
     }
-  }, [fmt, word, needsWord, wordReady])
+    // `scopeKey` captures the selection; `scopeFormats` is derived from it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fmt, word, needsWord, wordReady, scopeKey, noneSelected])
 
   return (
     <div className="fade-in border-b border-hairline bg-panel px-3 py-4">
+      {/* Scope — include only the chosen file types (all on by default). */}
+      {allLabels.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-faint">
+            include
+          </span>
+          {allLabels.map((label) => {
+            const on = !excluded.has(label)
+            return (
+              <button
+                key={label}
+                onClick={() => toggleLabel(label)}
+                aria-pressed={on}
+                className={`border px-2 py-1 font-mono text-[10.5px] transition-colors ${
+                  on
+                    ? 'border-amber-ring bg-amber-wash text-amber'
+                    : 'border-hairline text-dim hover:border-amber-ring'
+                }`}
+              >
+                {label} {formats[label]}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Format choices — small selectable rows. */}
       <div className="flex flex-col gap-1.5">
         {RENAME_FORMATS.map((f) => {
@@ -1030,7 +1096,7 @@ function RenamePanel({ busy, working, onApply }: RenamePanelProps) {
           type="text"
           value={word}
           onChange={(e) => setWord(e.target.value)}
-          placeholder="your word"
+          placeholder="tokyo or 🌊"
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
@@ -1040,7 +1106,11 @@ function RenamePanel({ busy, working, onApply }: RenamePanelProps) {
 
       {/* Preview — up to 3 from→to lines + the total. */}
       <div className="mt-3 min-h-[16px]">
-        {previewError ? (
+        {noneSelected ? (
+          <p className="font-mono text-[10.5px] text-faint">
+            select at least one type
+          </p>
+        ) : previewError ? (
           <p className="font-mono text-[10.5px] text-amber">{previewError}</p>
         ) : preview ? (
           <>
@@ -1064,7 +1134,7 @@ function RenamePanel({ busy, working, onApply }: RenamePanelProps) {
       </div>
 
       <button
-        onClick={() => onApply(fmt, word)}
+        onClick={() => onApply(fmt, word, scopeFormats)}
         disabled={!canApply}
         className="mt-1 border border-amber-ring bg-amber-wash px-3.5 py-1.5 font-sans text-[12px] text-amber transition-colors hover:bg-amber hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-amber-wash disabled:hover:text-amber"
       >

@@ -5,6 +5,7 @@ import type {
   FinderTidyResult,
   IndexStatus,
   Library,
+  OrganizeAction,
   OrganizeResult,
   RenameFmt,
   RenamePreview,
@@ -74,25 +75,28 @@ export const api = {
   /** Run an organize action on the active folder. Throws ApiError on
    *  4xx (e.g. 409 destination collision, 400 unknown action) so the UI
    *  can surface the message. */
-  organize: (action: string) =>
+  organize: (action: OrganizeAction) =>
     request<OrganizeResult>('/api/organize', json({ action })),
 
   /** Reverse the last organize action; returns how many moves were undone. */
   undo: () => request<{ undone: number }>('/api/undo', { method: 'POST' }),
 
   /** Dry-run a batch rename under `fmt` (`word` only used for 'custom').
-   *  Returns the total affected and up to 3 from→to examples; moves nothing.
-   *  Throws ApiError on 400 (bad fmt / empty word). */
-  renamePreview: (fmt: RenameFmt, word?: string) =>
+   *  `formats` filters to those file types (omit = all); an empty array is
+   *  rejected server-side with 400. Returns the total affected and up to 3
+   *  from→to examples; moves nothing. Throws ApiError on 400 (bad fmt /
+   *  empty word / empty selection). */
+  renamePreview: (fmt: RenameFmt, word?: string, formats?: string[]) =>
     request<RenamePreview>(
       '/api/rename',
-      json({ fmt, word, dry_run: true }),
+      json({ fmt, word, formats, dry_run: true }),
     ),
 
-  /** Apply a batch rename under `fmt`; returns how many files were renamed.
-   *  Throws ApiError on 400 (bad fmt / empty word) or 409 (collision). */
-  renameApply: (fmt: RenameFmt, word?: string) =>
-    request<{ renamed: number }>('/api/rename', json({ fmt, word })),
+  /** Apply a batch rename under `fmt`; `formats` filters to those file types
+   *  (omit = all). Returns how many files were renamed. Throws ApiError on
+   *  400 (bad fmt / empty word / empty selection) or 409 (collision). */
+  renameApply: (fmt: RenameFmt, word?: string, formats?: string[]) =>
+    request<{ renamed: number }>('/api/rename', json({ fmt, word, formats })),
 
   /** Tidy the active folder's Finder window: snap icons to a grid
    *  ('cleanup') or keep it arranged-by-name ('keep_on' / 'keep_off'). */

@@ -9,6 +9,8 @@ export interface Library {
   cameras: string[]
   date_range: [string, string] | [null, null]
   series: number
+  /** Count of photos per file-type label (e.g. { JPEG: 5, PNG: 2 }). */
+  formats: Record<string, number>
 }
 
 /** A folder currently open in a Finder window. */
@@ -42,8 +44,16 @@ export interface IndexStatus {
   error: string | null
 }
 
+/** The organize actions the controller can dispatch. */
+export type OrganizeAction =
+  | 'sort_by_date'
+  | 'by_day'
+  | 'by_camera'
+  | 'by_format'
+  | 'duplicates'
+
 /** Result of POST /api/organize. Fields present depend on the action:
- *  sort_by_date → renamed; by_day/by_camera → moved + folders;
+ *  sort_by_date → renamed; by_day/by_camera/by_format → moved + folders;
  *  duplicates → moved. */
 export interface OrganizeResult {
   action: string
