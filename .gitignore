@@ -3,3 +3,8 @@ __pycache__/
 .venv/
 phota-out/
 *.db
+*.egg-info/
+
+# macOS
+.DS_Store
+.gstack/
