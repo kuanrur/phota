@@ -321,3 +321,10 @@ def test_rename_missing_src_raises_before_move(tmp_path):
     assert a.read_text() == "A"
     assert not (tmp_path / "001.jpg").exists()
     assert not organize.manifest_path(tmp_path).exists()
+
+
+def test_safe_word_strips_dot_whitespace_mix():
+    # '. . tokyo' must not survive as a hidden-file prefix
+    from phota.rename import safe_word
+    assert safe_word('. . tokyo') == 'tokyo'
+    assert safe_word(' .. . 🌊') == '🌊'

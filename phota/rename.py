@@ -4,6 +4,7 @@
 ``(abs_src_path, new_basename)`` pairs. The caller (``organize.rename_files``)
 performs the actual two-phase, reversible moves.
 """
+import re
 import unicodedata
 from pathlib import Path
 
@@ -22,7 +23,9 @@ def safe_word(word) -> str:
         for ch in word
         if not unicodedata.category(ch).startswith("C") and ch not in "/:"
     )
-    word = word.strip().lstrip(".").strip()
+    # Strip mixed runs of dots and whitespace from the front ('. . tokyo' ->
+    # 'tokyo'), not just one contiguous dot run -- no hidden-file basenames.
+    word = re.sub(r"^[.\s]+", "", word).strip()
     if not word:
         raise ValueError("custom rename requires a non-empty word")
     return word
