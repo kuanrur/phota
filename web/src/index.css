@@ -6,20 +6,24 @@
    ───────────────────────────────────────────────────────────── */
 
 @theme {
-  --color-ink: #0b0b0c; /* background, near-black faintly cool */
-  --color-panel: #131316; /* secondary surfaces / panels */
+  --color-page: #08080a; /* page behind the window */
+  --color-ink: #0e0e10; /* window background, near-black */
+  --color-panel: #161618; /* secondary surfaces / panels */
   --color-elevated: #1a1a1e; /* hover / elevated surface */
-  --color-hairline: rgba(255, 255, 255, 0.08);
+  --color-hairline: rgba(255, 255, 255, 0.07);
+  --color-hairline-strong: rgba(255, 255, 255, 0.11);
 
-  --color-text: #eceae3; /* primary, warm off-white */
-  --color-dim: #76746e; /* dim text */
-  --color-faint: #4a4946; /* faint text */
+  --color-text: #f3f1ec; /* primary, warm off-white */
+  --color-mute: #b7b5ae; /* secondary text */
+  --color-dim: #79776f; /* dim text */
+  --color-faint: #56544d; /* faint text */
 
-  --color-amber: #d9a441; /* safelight accent */
-  --color-amber-wash: rgba(217, 164, 65, 0.12);
+  --color-amber: #d9a441; /* single accent */
+  --color-amber-wash: rgba(217, 164, 65, 0.14);
   --color-amber-ring: rgba(217, 164, 65, 0.55);
+  --color-amber-ink: #1a1407; /* dark text on solid amber */
 
-  --font-serif: 'Fraunces', Georgia, serif;
+  --font-display: 'Archivo', system-ui, sans-serif;
   --font-sans: 'Hanken Grotesk', system-ui, sans-serif;
   --font-mono: 'Space Mono', ui-monospace, monospace;
 
@@ -39,24 +43,11 @@
 
   body {
     margin: 0;
-    background-color: var(--color-ink);
+    background-color: var(--color-page);
     color: var(--color-text);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-  }
-
-  /* Barely-there film-grain / noise overlay for darkroom atmosphere. */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 9999;
-    opacity: 0.035;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-repeat: repeat;
-    mix-blend-mode: screen;
   }
 
   ::selection {
@@ -155,14 +146,15 @@
   }
 }
 
-/* Shared text input used in modals */
+/* Shared text input — rounded, monospace, used in picker + rename panel */
 .settings-input {
   width: 100%;
-  border: 1px solid var(--color-hairline);
-  background: var(--color-ink);
-  padding: 8px 10px;
+  border: 1.5px solid var(--color-hairline-strong);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 8px 11px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--color-text);
 }
 .settings-input::placeholder {

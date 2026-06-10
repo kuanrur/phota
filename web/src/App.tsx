@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { api, ApiError } from './api'
 import type {
   DuplicateGroup,
@@ -11,7 +12,7 @@ import type {
 import { ArrowLeft, FolderIcon } from './components/icons'
 
 /* ─────────────────────────────────────────────────────────────
-   phota — minimal Finder-folder controller.
+   phota — minimal Finder-folder controller (Studio grotesk skin).
 
    A tiny utility window with three states:
      A · Picker     — choose a folder (from Finder, or a pasted path)
@@ -39,8 +40,8 @@ const EMPTY_STATUS: IndexStatus = {
   error: null,
 }
 
-/** Repeats beyond the single keeper in each group — the number "Find
- *  duplicates" would move into _duplicates/. */
+/** Repeats beyond the single keeper in each group — the number "Set aside
+ *  duplicates" would move into duplicates/. */
 function extrasOf(groups: DuplicateGroup[]): number {
   return groups.reduce((sum, g) => sum + Math.max(g.ids.length - 1, 0), 0)
 }
@@ -61,7 +62,6 @@ export default function App() {
 
   // ── State B — controlling ──────────────────────────────────
   const [library, setLibrary] = useState<Library | null>(null)
-  const [dupeGroups, setDupeGroups] = useState<number>(0)
   // Count of duplicate *extras* (repeats beyond the one kept per group).
   const [dupeExtras, setDupeExtras] = useState<number>(0)
 
@@ -88,7 +88,6 @@ export default function App() {
       api.duplicates().catch(() => []),
     ])
     setLibrary(lib)
-    setDupeGroups(dupes.length)
     setDupeExtras(extrasOf(dupes))
   }, [])
 
@@ -225,10 +224,10 @@ export default function App() {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <div className="flex h-full justify-center bg-ink p-2">
-      <div className="flex h-full w-full max-w-[620px] flex-col overflow-hidden rounded-[10px] border border-hairline bg-ink shadow-2xl">
+    <div className="flex min-h-full justify-center bg-page p-4 sm:py-12">
+      <div className="flex h-fit min-h-full w-full max-w-[620px] flex-col overflow-hidden rounded-[14px] border border-hairline-strong bg-ink shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_40px_90px_-30px_rgba(0,0,0,0.8)]">
         {booting ? (
-          <div className="flex h-full items-center justify-center font-mono text-[12px] text-faint">
+          <div className="flex min-h-[320px] flex-1 items-center justify-center font-mono text-[12px] text-faint">
             loading…
           </div>
         ) : screen === 'picker' ? (
@@ -247,13 +246,46 @@ export default function App() {
         ) : (
           <Controller
             library={library}
-            dupeGroups={dupeGroups}
             dupeExtras={dupeExtras}
             onChangeFolder={changeFolder}
             onReload={loadFolder}
           />
         )}
       </div>
+    </div>
+  )
+}
+
+/* ─── Shared chrome ──────────────────────────────────────────── */
+
+/** The window's top bar: a quiet back affordance on the left and the
+ *  brand wordmark on the right. `onBack` is omitted on the picker. */
+function TopBar({ onBack }: { onBack?: () => void }) {
+  return (
+    <div className="flex h-[46px] flex-none items-center justify-between border-b border-hairline px-6">
+      {onBack ? (
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 font-sans text-[12.5px] font-medium text-dim transition-colors hover:text-mute"
+        >
+          <ArrowLeft size={12} />
+          change folder
+        </button>
+      ) : (
+        <span />
+      )}
+      <span className="font-sans text-[12.5px] font-bold tracking-[0.02em] text-mute">
+        phota
+      </span>
+    </div>
+  )
+}
+
+/** Tiny uppercase letterspaced dim section label. */
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="px-6 pt-6 pb-3 font-sans text-[10.5px] font-bold uppercase tracking-[0.16em] text-faint">
+      {children}
     </div>
   )
 }
@@ -284,21 +316,22 @@ function Picker({
   const permission = error === 'permission'
 
   return (
-    <div className="flex h-full items-center justify-center overflow-y-auto px-7 py-8">
-      <div className="scale-in w-full max-w-[460px]">
-        <h1 className="select-none font-serif text-[34px] italic leading-none text-text">
+    <>
+      <TopBar />
+      <div className="scale-in flex flex-1 flex-col px-6 py-10">
+        <h1 className="select-none font-display text-[44px] font-extrabold leading-[0.96] tracking-[-0.035em] text-text">
           phota
         </h1>
-        <p className="mt-3 font-sans text-[13px] text-dim">
+        <p className="mt-3 font-mono text-[12px] tracking-[-0.01em] text-dim">
           pick a folder to organize
         </p>
 
-        <div className="mt-7">
+        <div className="mt-8">
           {scanning ? (
             <div className="font-mono text-[12px] text-faint">reading Finder…</div>
           ) : permission ? (
-            <div className="border border-hairline bg-panel px-5 py-5">
-              <p className="font-sans text-[13px] leading-relaxed text-dim">
+            <div className="rounded-[10px] border border-hairline bg-panel px-5 py-5">
+              <p className="font-sans text-[13.5px] leading-relaxed text-mute">
                 phota needs permission to read your Finder folders. Open{' '}
                 <span className="text-text">System Settings</span> →{' '}
                 <span className="text-text">Privacy &amp; Security</span> →{' '}
@@ -307,25 +340,28 @@ function Picker({
               </p>
               <button
                 onClick={onRescan}
-                className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber"
+                className="mt-4 rounded-[10px] border-[1.5px] border-hairline-strong px-3.5 py-2 font-sans text-[13px] font-semibold text-mute transition-colors hover:border-white/20 hover:text-text"
               >
                 Rescan
               </button>
             </div>
           ) : folders.length === 0 ? (
-            <div className="border border-hairline bg-panel px-5 py-5">
-              <p className="font-sans text-[13px] leading-relaxed text-dim">
+            <div className="rounded-[10px] border border-hairline bg-panel px-5 py-5">
+              <p className="font-sans text-[13.5px] leading-relaxed text-mute">
                 No folder open in Finder. Open one, or paste a path below.
               </p>
               <button
                 onClick={onRescan}
-                className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber"
+                className="mt-4 rounded-[10px] border-[1.5px] border-hairline-strong px-3.5 py-2 font-sans text-[13px] font-semibold text-mute transition-colors hover:border-white/20 hover:text-text"
               >
                 Rescan
               </button>
             </div>
           ) : (
             <>
+              <div className="mb-3 font-sans text-[10.5px] font-bold uppercase tracking-[0.16em] text-faint">
+                open in Finder
+              </div>
               <ul className="flex flex-col gap-2">
                 {folders.map((f, i) => (
                   <li
@@ -335,16 +371,16 @@ function Picker({
                   >
                     <button
                       onClick={() => onPick(f.path)}
-                      className="group flex w-full items-center gap-3 border border-hairline bg-panel px-4 py-3 text-left transition-colors hover:border-amber-ring hover:bg-elevated"
+                      className="group flex w-full items-center gap-3 rounded-[10px] border border-hairline bg-panel px-4 py-3.5 text-left transition-colors hover:border-amber-ring hover:bg-elevated"
                     >
                       <span className="flex-none text-dim transition-colors group-hover:text-amber">
                         <FolderIcon size={16} />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-sans text-[14px] text-text">
+                        <span className="block truncate font-display text-[15px] font-semibold tracking-[-0.018em] text-text">
                           {f.name}
                         </span>
-                        <span className="block truncate font-mono text-[10.5px] text-dim">
+                        <span className="mt-0.5 block truncate font-mono text-[11px] tracking-[-0.01em] text-dim">
                           {f.path}
                         </span>
                       </span>
@@ -363,7 +399,10 @@ function Picker({
         </div>
 
         {/* Manual fallback — always available. */}
-        <div className="mt-8 border-t border-hairline pt-6">
+        <div className="mt-9 border-t border-hairline pt-6">
+          <div className="mb-3 font-sans text-[10.5px] font-bold uppercase tracking-[0.16em] text-faint">
+            or paste a path
+          </div>
           <form
             onSubmit={(e) => {
               e.preventDefault()
@@ -375,7 +414,7 @@ function Picker({
               type="text"
               value={manualPath}
               onChange={(e) => onManualChange(e.target.value)}
-              placeholder="or paste a folder path"
+              placeholder="/Users/you/Pictures"
               spellCheck={false}
               autoCapitalize="off"
               autoCorrect="off"
@@ -384,7 +423,7 @@ function Picker({
             <button
               type="submit"
               disabled={!manualPath.trim()}
-              className="flex-none border border-hairline px-3.5 py-2 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:cursor-default disabled:opacity-40"
+              className="flex-none rounded-[10px] border-[1.5px] border-hairline-strong px-4 py-2 font-sans text-[13px] font-semibold text-mute transition-colors hover:border-white/20 hover:text-text disabled:cursor-default disabled:opacity-40 disabled:hover:border-hairline-strong disabled:hover:text-mute"
             >
               Open
             </button>
@@ -394,13 +433,13 @@ function Picker({
           )}
         </div>
       </div>
-    </div>
+    </>
   )
 }
 
 /* ─── Indexing — the chosen folder is being scanned ─────────────
-   A calm darkroom progress view: folder name + path, a hairline
-   track with an amber fill (done / total), no spinner, no photos. */
+   Folder name in Archivo bold, a hairline track with an amber 2px
+   fill (done / total), no spinner, no photos. */
 
 interface IndexingViewProps {
   state: Indexing | null
@@ -424,16 +463,17 @@ function IndexingView({ state, onBack }: IndexingViewProps) {
   const fatal = error !== null && status?.error != null
 
   return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-14">
-      <div className="scale-in w-full max-w-[420px] text-center">
+    <>
+      <TopBar onBack={onBack} />
+      <div className="scale-in flex flex-1 flex-col justify-center px-6 py-10">
         <div
-          className="truncate font-serif text-[30px] italic leading-tight text-text"
+          className="truncate font-display text-[44px] font-extrabold leading-[0.96] tracking-[-0.035em] text-text"
           title={name}
         >
           {name}
         </div>
         <div
-          className="mx-auto mt-2 max-w-[480px] truncate font-mono text-[11px] text-dim"
+          className="mt-3.5 truncate font-mono text-[12px] tracking-[-0.01em] text-dim"
           title={folder}
         >
           {folder}
@@ -441,17 +481,17 @@ function IndexingView({ state, onBack }: IndexingViewProps) {
 
         {fatal ? (
           <div className="mt-10">
-            <p className="font-mono text-[11px] text-amber">{error}</p>
+            <p className="font-mono text-[12px] text-amber">{error}</p>
             <button
               onClick={onBack}
-              className="mt-4 border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber"
+              className="mt-4 rounded-[10px] border-[1.5px] border-hairline-strong px-3.5 py-2 font-sans text-[13px] font-semibold text-mute transition-colors hover:border-white/20 hover:text-text"
             >
               ← back to picker
             </button>
           </div>
         ) : (
           <div className="mt-10">
-            {/* Slim hairline track with an amber fill. */}
+            {/* Slim hairline track with an amber 2px fill. */}
             <div
               className="h-[2px] w-full overflow-hidden bg-hairline"
               role="progressbar"
@@ -465,7 +505,7 @@ function IndexingView({ state, onBack }: IndexingViewProps) {
               />
             </div>
 
-            <p className="mt-3 font-mono text-[11px] text-dim">
+            <p className="mt-3.5 font-mono text-[12px] tracking-[-0.01em] text-dim">
               {scanning ? (
                 'scanning…'
               ) : (
@@ -482,7 +522,7 @@ function IndexingView({ state, onBack }: IndexingViewProps) {
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -490,7 +530,6 @@ function IndexingView({ state, onBack }: IndexingViewProps) {
 
 interface ControllerProps {
   library: Library | null
-  dupeGroups: number
   dupeExtras: number
   onChangeFolder: () => void
   onReload: () => Promise<void>
@@ -501,7 +540,6 @@ type Busy = Action | 'undo' | 'rename' | 'tidy' | 'keep' | null
 
 function Controller({
   library,
-  dupeGroups,
   dupeExtras,
   onChangeFolder,
   onReload,
@@ -517,7 +555,7 @@ function Controller({
   )
   const working = busy !== null
 
-  // ── Rename panel — expanded inline under the "Rename all" row ─
+  // ── Rename panel — expanded inline under the "Rename photos" row ─
   const [renameOpen, setRenameOpen] = useState(false)
 
   // ── Finder · keep-arranged toggle (seeded on folder load) ────
@@ -655,233 +693,254 @@ function Controller({
     }
   }, [arranged])
 
-  const rows: {
-    action: Action
-    label: string
-    desc: string
-    affects: number
-    empty?: boolean
-  }[] = [
-    {
-      action: 'sort_by_date',
-      label: 'Sort by date',
-      desc: 'rename oldest to newest (001_, 002_)',
-      affects: count,
-    },
-    {
-      action: 'by_day',
-      label: 'Group by day',
-      desc: 'into dated folders (2025-12-24/)',
-      affects: count,
-    },
-    {
-      action: 'by_camera',
-      label: 'Group by camera',
-      desc: 'into a folder per camera',
-      affects: count,
-    },
-    {
-      action: 'by_format',
-      label: 'Group by format',
-      desc: 'into a folder per file type (JPEG/, PNG/)',
-      affects: count,
-    },
-    {
-      action: 'duplicates',
-      label: 'Find duplicates',
-      desc: 'move repeats into _duplicates/',
-      affects: dupeExtras,
-      empty: dupeExtras === 0,
-    },
-  ]
+  // Repeats shown in the meta line and the Clean up row count.
+  const repeats = dupeExtras
 
   return (
-    <div className="relative flex h-full flex-col overflow-y-auto">
-      {/* change-folder link, quietly in the corner */}
-      <button
-        onClick={onChangeFolder}
-        className="absolute left-4 top-4 z-10 flex items-center gap-1.5 font-mono text-[11px] text-dim transition-colors hover:text-text"
-      >
-        <ArrowLeft size={12} />
-        change folder
-      </button>
+    <div className="flex flex-1 flex-col overflow-y-auto">
+      <TopBar onBack={onChangeFolder} />
 
-      <div className="flex flex-1 flex-col items-center justify-center px-8 py-14">
-        <div className="scale-in w-full max-w-[420px] text-center">
-          <h1 className="select-none font-serif text-[22px] italic leading-none text-dim">
-            phota
-          </h1>
-
+      <div className="scale-in flex flex-1 flex-col">
+        {/* ── Folder block ──────────────────────────────────── */}
+        <div className="px-6 pt-8 pb-6">
           <div
-            className="mt-7 truncate font-serif text-[30px] italic leading-tight text-text"
+            className="truncate font-display text-[54px] font-extrabold leading-[0.96] tracking-[-0.035em] text-text"
             title={name}
           >
             {name}
           </div>
           <div
-            className="mx-auto mt-2 max-w-[480px] truncate font-mono text-[11px] text-dim"
+            className="mt-3.5 truncate font-mono text-[12px] tracking-[-0.01em] text-dim"
             title={folder}
           >
             {folder}
           </div>
-
-          <p className="mt-8 font-mono text-[11px] text-faint">
-            {count} photo{count === 1 ? '' : 's'}
-            {dupeGroups > 0 && (
+          <div className="mt-1.5 font-mono text-[12px] tracking-[-0.01em] text-faint">
+            <span className="text-mute">
+              {count} photo{count === 1 ? '' : 's'}
+            </span>
+            {repeats > 0 && (
               <>
                 {' · '}
-                {dupeGroups} set{dupeGroups === 1 ? '' : 's'} of repeats
+                {repeats} repeat{repeats === 1 ? '' : 's'}
               </>
             )}
-          </p>
+          </div>
+        </div>
 
-          {/* ── Organize ─────────────────────────────────────── */}
-          <div className="mt-10 text-left">
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
-              Organize
-            </div>
+        {/* ── RENAME ────────────────────────────────────────── */}
+        <SectionLabel>Rename</SectionLabel>
+        <button
+          onClick={() => setRenameOpen((v) => !v)}
+          disabled={working}
+          aria-expanded={renameOpen}
+          className={`group flex w-full items-center gap-4 border-t border-hairline px-6 py-6 text-left transition-colors hover:bg-white/[0.018] disabled:cursor-default disabled:hover:bg-transparent ${
+            renameOpen ? 'bg-white/[0.022]' : ''
+          }`}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-[18px] font-semibold leading-tight tracking-[-0.018em] text-text">
+              Rename photos
+            </span>
+            <span className="mt-1.5 block font-sans text-[13px] leading-snug tracking-[-0.005em] text-dim">
+              date, numbers, or your own word
+            </span>
+          </span>
+          <Chevron open={renameOpen} />
+        </button>
+        {renameOpen && (
+          <RenamePanel
+            busy={busy === 'rename'}
+            working={working}
+            count={count}
+            formats={library?.formats ?? {}}
+            onApply={applyRename}
+          />
+        )}
 
-            <ul className="mt-3 border-t border-hairline">
-              {rows.map((r) => {
-                const disabled = working || r.empty
-                return (
-                  <li key={r.action}>
-                    <button
-                      onClick={() => run(r.action)}
-                      disabled={disabled}
-                      className="group flex w-full items-center gap-4 border-b border-hairline px-1 py-3 text-left transition-colors hover:bg-elevated disabled:cursor-default disabled:hover:bg-transparent"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-sans text-[13.5px] text-text transition-colors group-hover:text-amber group-disabled:text-dim">
-                          {r.label}
-                        </span>
-                        <span className="mt-0.5 block truncate font-mono text-[10.5px] text-dim">
-                          {r.desc}
-                        </span>
-                      </span>
-                      <span className="flex-none font-mono text-[10.5px]">
-                        {r.empty ? (
-                          <span className="text-faint">none found</span>
-                        ) : (
-                          <span className="text-amber">{r.affects}</span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
+        {/* ── PUT IN ORDER ──────────────────────────────────── */}
+        <SectionLabel>Put in order</SectionLabel>
+        <Row
+          title="Number by date"
+          disabled={working}
+          onClick={() => run('sort_by_date')}
+          count={count}
+          sub={
+            <>
+              renames oldest → newest (
+              <code className="font-mono text-[11.5px]">001_, 002_…</code>)
+            </>
+          }
+        />
 
-              {/* Fifth row — opens an inline rename panel (no modal). */}
-              <li>
-                <button
-                  onClick={() => setRenameOpen((v) => !v)}
-                  disabled={working}
-                  aria-expanded={renameOpen}
-                  className="group flex w-full items-center gap-4 border-b border-hairline px-1 py-3 text-left transition-colors hover:bg-elevated disabled:cursor-default disabled:hover:bg-transparent"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span
-                      className={`block font-sans text-[13.5px] transition-colors group-disabled:text-dim ${
-                        renameOpen
-                          ? 'text-amber'
-                          : 'text-text group-hover:text-amber'
-                      }`}
-                    >
-                      Rename all
-                    </span>
-                    <span className="mt-0.5 block truncate font-mono text-[10.5px] text-dim">
-                      give every photo a clean name
-                    </span>
-                  </span>
-                  <span className="flex-none font-mono text-[10.5px] text-dim">
-                    {renameOpen ? '−' : '+'}
-                  </span>
-                </button>
-                {renameOpen && (
-                  <RenamePanel
-                    busy={busy === 'rename'}
-                    working={working}
-                    formats={library?.formats ?? {}}
-                    onApply={applyRename}
-                  />
-                )}
-              </li>
-            </ul>
+        {/* ── MAKE FOLDERS ──────────────────────────────────── */}
+        <SectionLabel>Make folders</SectionLabel>
+        <Row
+          title="By day"
+          disabled={working}
+          onClick={() => run('by_day')}
+          count={count}
+          sub={
+            <>
+              moves photos into{' '}
+              <code className="font-mono text-[11.5px]">2025-08-07/</code>
+            </>
+          }
+        />
+        <Row
+          title="By camera"
+          disabled={working}
+          onClick={() => run('by_camera')}
+          count={count}
+          sub={
+            <>
+              moves photos into{' '}
+              <code className="font-mono text-[11.5px]">iPhone 15/, X-T5/</code>
+            </>
+          }
+        />
+        <Row
+          title="By file type"
+          disabled={working}
+          onClick={() => run('by_format')}
+          count={count}
+          sub={
+            <>
+              moves photos into{' '}
+              <code className="font-mono text-[11.5px]">JPEG/, PNG/</code>
+            </>
+          }
+        />
 
-            {/* ── Finder ───────────────────────────────────────── */}
-            <div className="mt-9">
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-faint">
-                Finder
-              </div>
+        {/* ── CLEAN UP ──────────────────────────────────────── */}
+        <SectionLabel>Clean up</SectionLabel>
+        <Row
+          title="Set aside duplicates"
+          disabled={working || dupeExtras === 0}
+          empty={dupeExtras === 0}
+          onClick={() => run('duplicates')}
+          count={dupeExtras}
+          sub={
+            <>
+              moves repeats into{' '}
+              <code className="font-mono text-[11.5px]">duplicates/</code>, keeps
+              the sharpest
+            </>
+          }
+        />
 
-              <ul className="mt-3 border-t border-hairline">
-                <li>
-                  <button
-                    onClick={tidyIcons}
-                    disabled={working}
-                    className="group flex w-full items-center gap-4 border-b border-hairline px-1 py-3 text-left transition-colors hover:bg-elevated disabled:cursor-default disabled:hover:bg-transparent"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-sans text-[13.5px] text-text transition-colors group-hover:text-amber group-disabled:text-dim">
-                        Tidy icons
-                      </span>
-                      <span className="mt-0.5 block truncate font-mono text-[10.5px] text-dim">
-                        snap icons to an even grid, sorted
-                      </span>
-                    </span>
-                  </button>
-                </li>
-                <li>
-                  <button
-                    onClick={toggleKeep}
-                    disabled={working}
-                    role="switch"
-                    aria-checked={arranged}
-                    className="group flex w-full items-center gap-4 border-b border-hairline px-1 py-3 text-left transition-colors hover:bg-elevated disabled:cursor-default disabled:hover:bg-transparent"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-sans text-[13.5px] text-text transition-colors group-hover:text-amber group-disabled:text-dim">
-                        Keep arranged
-                      </span>
-                      <span className="mt-0.5 block truncate font-mono text-[10.5px] text-dim">
-                        keep the window sorted by name
-                      </span>
-                    </span>
-                    <span className="flex-none">
-                      <Toggle on={arranged} />
-                    </span>
-                  </button>
-                </li>
-              </ul>
-            </div>
+        {/* ── FINDER ────────────────────────────────────────── */}
+        <SectionLabel>Finder</SectionLabel>
+        <Row
+          title="Tidy icons"
+          disabled={working}
+          onClick={tidyIcons}
+          sub="snap Finder icons to an even grid"
+        />
+        <button
+          onClick={toggleKeep}
+          disabled={working}
+          role="switch"
+          aria-checked={arranged}
+          className="group flex w-full items-center gap-4 border-t border-hairline px-6 py-6 text-left transition-colors hover:bg-white/[0.018] disabled:cursor-default disabled:hover:bg-transparent"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-[18px] font-semibold leading-tight tracking-[-0.018em] text-text">
+              Keep tidy
+            </span>
+            <span className="mt-1.5 block font-sans text-[13px] leading-snug tracking-[-0.005em] text-dim">
+              keep this folder auto-arranged
+            </span>
+          </span>
+          <span className="flex-none">
+            <Toggle on={arranged} />
+          </span>
+        </button>
 
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <button
-                onClick={undo}
-                disabled={working}
-                className="border border-hairline px-3 py-1.5 font-sans text-[12px] text-text transition-colors hover:border-amber hover:text-amber disabled:cursor-default disabled:opacity-40"
+        {/* ── FOOTER ────────────────────────────────────────── */}
+        <div className="mt-auto flex items-center gap-4 border-t border-hairline-strong px-6 py-6">
+          <button
+            onClick={undo}
+            disabled={working}
+            className="flex-none rounded-[10px] border-[1.5px] border-hairline-strong px-4 py-2 font-sans text-[13.5px] font-semibold text-mute transition-colors hover:border-white/[0.22] hover:text-text disabled:cursor-default disabled:opacity-40 disabled:hover:border-hairline-strong disabled:hover:text-mute"
+          >
+            Undo last change
+          </button>
+
+          <div className="min-w-0 flex-1">
+            {working ? (
+              <span className="font-mono text-[12px] tracking-[-0.01em] text-amber">
+                Working…
+              </span>
+            ) : status ? (
+              <span
+                className={`font-mono text-[12px] tracking-[-0.01em] ${
+                  status.error ? 'text-amber' : 'text-dim'
+                }`}
               >
-                Undo last
-              </button>
-
-              <div className="min-w-0 flex-1 text-right">
-                {working ? (
-                  <span className="font-mono text-[11px] text-amber">Working…</span>
-                ) : status ? (
-                  <span
-                    className={`font-mono text-[11px] ${
-                      status.error ? 'text-amber' : 'text-dim'
-                    }`}
-                  >
-                    {status.text}
-                  </span>
-                ) : null}
-              </div>
-            </div>
+                {status.text}
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
     </div>
+  )
+}
+
+/* ─── A single tappable action row (full-width hairline + count) ── */
+
+interface RowProps {
+  title: string
+  sub: ReactNode
+  onClick: () => void
+  disabled?: boolean
+  /** Affected count, shown in quiet amber mono on the right. */
+  count?: number
+  /** When true, render the disabled "none found" state instead of a count. */
+  empty?: boolean
+}
+
+function Row({ title, sub, onClick, disabled, count, empty }: RowProps) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="group flex w-full items-center gap-4 border-t border-hairline px-6 py-6 text-left transition-colors hover:bg-white/[0.018] disabled:cursor-default disabled:hover:bg-transparent"
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-[18px] font-semibold leading-tight tracking-[-0.018em] text-text group-disabled:text-dim">
+          {title}
+        </span>
+        <span className="mt-1.5 block font-sans text-[13px] leading-snug tracking-[-0.005em] text-dim">
+          {sub}
+        </span>
+      </span>
+      {empty ? (
+        <span className="flex-none font-mono text-[12px] tracking-[-0.01em] text-faint">
+          none found
+        </span>
+      ) : count !== undefined ? (
+        <span className="flex-none font-mono text-[12px] tracking-[-0.01em] text-amber/80">
+          {count}
+        </span>
+      ) : null}
+      <Chevron />
+    </button>
+  )
+}
+
+/* ─── Chevron — rotates + turns amber when its row is expanded. ── */
+
+function Chevron({ open = false }: { open?: boolean }) {
+  return (
+    <span
+      className={`w-[14px] flex-none text-center text-[13px] transition-all ${
+        open ? 'rotate-90 text-amber' : 'text-faint'
+      }`}
+    >
+      ›
+    </span>
   )
 }
 
@@ -918,29 +977,31 @@ function tidyErrorText(error?: string | null): string {
   return 'Couldn’t reach Finder.'
 }
 
-/* ─── Finder · minimal on/off toggle ────────────────────────────
-   A hairline pill that fills amber when on; matches the darkroom feel. */
+/* ─── Finder · amber pill toggle ─────────────────────────────────
+   A hairline pill that fills amber when on; the knob slides + darkens. */
 
 function Toggle({ on }: { on: boolean }) {
   return (
     <span
-      className={`relative block h-[14px] w-[24px] rounded-full border transition-colors ${
-        on ? 'border-amber-ring bg-amber-wash' : 'border-hairline bg-ink'
+      className={`relative block h-[24px] w-[42px] rounded-full border transition-colors ${
+        on ? 'border-amber bg-amber' : 'border-hairline-strong bg-elevated'
       }`}
     >
       <span
-        className={`absolute top-[1px] h-[10px] w-[10px] rounded-full transition-all ${
-          on ? 'left-[11px] bg-amber' : 'left-[1px] bg-dim'
+        className={`absolute top-[2px] h-[18px] w-[18px] rounded-full transition-all ${
+          on
+            ? 'left-[22px] bg-amber-ink'
+            : 'left-[2px] bg-dim'
         }`}
       />
     </span>
   )
 }
 
-/* ─── Rename panel — inline, expanded under the "Rename all" row ─
-   Four naming schemes as small selectable rows; "my word" reveals a
-   text input (picker-style). Each change dry-runs a preview and shows
-   up to 3 from→to lines with the total. An amber Rename applies it. */
+/* ─── Rename panel — inline, expanded under the "Rename photos" row ─
+   include-format chips, four naming-scheme chips ("your word" reveals a
+   text input), a live preview of up to 3 from→to lines + the total, and
+   a solid-amber apply button. */
 
 const RENAME_FORMATS: {
   fmt: RenameFmt
@@ -948,14 +1009,15 @@ const RENAME_FORMATS: {
   example: string
 }[] = [
   { fmt: 'date_number', label: 'date + number', example: '2025-08-07_01.jpg' },
-  { fmt: 'datetime', label: 'date taken', example: '2025-08-07_143052.jpg' },
+  { fmt: 'datetime', label: 'date & time', example: '2025-08-07_143052.jpg' },
   { fmt: 'number', label: 'numbers', example: '001.jpg' },
-  { fmt: 'custom', label: 'my word', example: 'word_001.jpg' },
 ]
 
 interface RenamePanelProps {
   busy: boolean
   working: boolean
+  /** Total photos in the active folder — for the primary button label. */
+  count: number
   /** Photo count per file-type label (e.g. { JPEG: 5, PNG: 2 }). */
   formats: Record<string, number>
   onApply: (
@@ -965,7 +1027,7 @@ interface RenamePanelProps {
   ) => void
 }
 
-function RenamePanel({ busy, working, formats, onApply }: RenamePanelProps) {
+function RenamePanel({ busy, working, count, formats, onApply }: RenamePanelProps) {
   const [fmt, setFmt] = useState<RenameFmt>('date_number')
   const [word, setWord] = useState('')
   const [preview, setPreview] = useState<{
@@ -999,6 +1061,10 @@ function RenamePanel({ busy, working, formats, onApply }: RenamePanelProps) {
   const needsWord = fmt === 'custom'
   const wordReady = !needsWord || word.trim().length > 0
   const canApply = wordReady && !working && !noneSelected
+
+  // The primary button affects the previewed total when known, else the
+  // folder count (mirrors the "renames N photos" countline below).
+  const affected = preview?.total ?? count
 
   // Dry-run a preview on any format/word/scope change (debounced for custom
   // typing). All state writes happen inside the timeout — never synchronously
@@ -1034,112 +1100,161 @@ function RenamePanel({ busy, working, formats, onApply }: RenamePanelProps) {
   }, [fmt, word, needsWord, wordReady, scopeKey, noneSelected])
 
   return (
-    <div className="fade-in border-b border-hairline bg-panel px-3 py-4">
-      {/* Scope — include only the chosen file types (all on by default). */}
+    <div className="fade-in border-t border-hairline bg-black/[0.22] px-6 pt-6 pb-8">
+      {/* include — only the chosen file types (all on by default). */}
       {allLabels.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-faint">
+        <div className="mb-6">
+          <div className="mb-3 font-sans text-[10.5px] font-bold uppercase tracking-[0.14em] text-faint">
             include
-          </span>
-          {allLabels.map((label) => {
-            const on = !excluded.has(label)
-            return (
-              <button
-                key={label}
-                onClick={() => toggleLabel(label)}
-                aria-pressed={on}
-                className={`border px-2 py-1 font-mono text-[10.5px] transition-colors ${
-                  on
-                    ? 'border-amber-ring bg-amber-wash text-amber'
-                    : 'border-hairline text-dim hover:border-amber-ring'
-                }`}
-              >
-                {label} {formats[label]}
-              </button>
-            )
-          })}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {allLabels.map((label) => {
+              const on = !excluded.has(label)
+              return (
+                <button
+                  key={label}
+                  onClick={() => toggleLabel(label)}
+                  aria-pressed={on}
+                  className={`inline-flex h-[34px] items-center gap-2 rounded-full border-[1.5px] px-3.5 font-sans text-[13px] font-semibold tracking-[-0.005em] transition-colors ${
+                    on
+                      ? 'border-amber bg-amber-wash text-text'
+                      : 'border-dashed border-hairline-strong text-mute opacity-50 hover:border-white/20'
+                  }`}
+                >
+                  {label}{' '}
+                  <span
+                    className={`font-mono text-[11px] font-normal ${
+                      on ? 'text-amber' : 'text-faint'
+                    }`}
+                  >
+                    {formats[label]}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </div>
       )}
 
-      {/* Format choices — small selectable rows. */}
-      <div className="flex flex-col gap-1.5">
-        {RENAME_FORMATS.map((f) => {
-          const selected = f.fmt === fmt
-          return (
-            <button
-              key={f.fmt}
-              onClick={() => setFmt(f.fmt)}
-              className={`flex items-baseline justify-between gap-3 border px-2.5 py-1.5 text-left transition-colors ${
-                selected
-                  ? 'border-amber-ring bg-amber-wash'
-                  : 'border-hairline hover:border-amber-ring'
-              }`}
-            >
-              <span
-                className={`font-sans text-[12.5px] ${
-                  selected ? 'text-amber' : 'text-text'
+      {/* name them — naming-scheme chips ("your word" reveals an input). */}
+      <div className="mb-1">
+        <div className="mb-3 font-sans text-[10.5px] font-bold uppercase tracking-[0.14em] text-faint">
+          name them
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {RENAME_FORMATS.map((f) => {
+            const sel = f.fmt === fmt
+            return (
+              <button
+                key={f.fmt}
+                onClick={() => setFmt(f.fmt)}
+                className={`flex flex-col items-start gap-[3px] rounded-[12px] border-[1.5px] px-3.5 py-[9px] text-left transition-colors ${
+                  sel
+                    ? 'border-amber bg-amber-wash'
+                    : 'border-hairline-strong hover:border-white/20'
                 }`}
               >
-                {f.label}
-              </span>
-              <span className="truncate font-mono text-[10.5px] text-dim">
-                {f.example}
-              </span>
+                <span
+                  className={`font-sans text-[13px] font-semibold ${
+                    sel ? 'text-text' : 'text-mute'
+                  }`}
+                >
+                  {f.label}
+                </span>
+                <span
+                  className={`font-mono text-[10.5px] tracking-[-0.01em] ${
+                    sel ? 'text-amber' : 'text-faint'
+                  }`}
+                >
+                  {f.example}
+                </span>
+              </button>
+            )
+          })}
+
+          {/* your word — a chip with a revealed monospace input. */}
+          <div
+            className={`flex flex-col items-start gap-1.5 rounded-[12px] border-[1.5px] px-3 pt-[9px] pb-[11px] transition-colors ${
+              needsWord
+                ? 'border-amber bg-amber-wash'
+                : 'border-hairline-strong'
+            }`}
+          >
+            <button
+              onClick={() => setFmt('custom')}
+              className={`font-sans text-[13px] font-semibold ${
+                needsWord ? 'text-text' : 'text-mute'
+              }`}
+            >
+              your word
             </button>
-          )
-        })}
+            <input
+              type="text"
+              value={word}
+              onFocusCapture={() => setFmt('custom')}
+              onChange={(e) => {
+                setFmt('custom')
+                setWord(e.target.value)
+              }}
+              placeholder="tokyo or 🌊"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="h-[30px] w-[108px] rounded-lg border-[1.5px] border-amber-ring bg-black/30 px-2.5 font-mono text-[15px] text-text outline-none placeholder:text-faint"
+            />
+          </div>
+        </div>
       </div>
 
-      {/* "my word" → reveal a picker-style manual input. */}
-      {needsWord && (
-        <input
-          type="text"
-          value={word}
-          onChange={(e) => setWord(e.target.value)}
-          placeholder="tokyo or 🌊"
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          className="settings-input mt-2.5"
-        />
-      )}
-
       {/* Preview — up to 3 from→to lines + the total. */}
-      <div className="mt-3 min-h-[16px]">
+      <div className="mt-6 rounded-[10px] border border-hairline bg-black/30 p-4">
         {noneSelected ? (
-          <p className="font-mono text-[10.5px] text-faint">
+          <p className="font-mono text-[12.5px] leading-[1.85] text-faint">
             select at least one type
           </p>
         ) : previewError ? (
-          <p className="font-mono text-[10.5px] text-amber">{previewError}</p>
+          <p className="font-mono text-[12.5px] leading-[1.85] text-amber">
+            {previewError}
+          </p>
         ) : preview ? (
           <>
             {preview.examples.map((ex) => (
               <p
                 key={ex.from}
-                className="truncate font-mono text-[10.5px] text-faint"
+                className="truncate font-mono text-[12.5px] leading-[1.85] tracking-[-0.02em] text-dim"
               >
-                {ex.from} → {ex.to}
+                {ex.from} <span className="px-2 text-faint">→</span>{' '}
+                <span className="text-amber">{ex.to}</span>
               </p>
             ))}
-            <p className="mt-1.5 font-mono text-[10.5px] text-dim">
-              renames {preview.total} photo{preview.total === 1 ? '' : 's'}
-            </p>
+            <p className="font-mono text-[12.5px] leading-[1.85] text-faint">…</p>
           </>
         ) : needsWord && !wordReady ? (
-          <p className="font-mono text-[10.5px] text-faint">
+          <p className="font-mono text-[12.5px] leading-[1.85] text-faint">
             type a word to preview…
           </p>
-        ) : null}
+        ) : (
+          <p className="font-mono text-[12.5px] leading-[1.85] text-faint">…</p>
+        )}
       </div>
 
-      <button
-        onClick={() => onApply(fmt, word, scopeFormats)}
-        disabled={!canApply}
-        className="mt-1 border border-amber-ring bg-amber-wash px-3.5 py-1.5 font-sans text-[12px] text-amber transition-colors hover:bg-amber hover:text-ink disabled:cursor-default disabled:opacity-40 disabled:hover:bg-amber-wash disabled:hover:text-amber"
-      >
-        {busy ? 'Renaming…' : 'Rename'}
-      </button>
+      {/* Action — countline + solid-amber apply button. */}
+      <div className="mt-6 flex items-center justify-between gap-4">
+        <span className="font-mono text-[12px] tracking-[-0.01em] text-dim">
+          {noneSelected
+            ? 'select at least one type'
+            : `renames ${affected} photo${affected === 1 ? '' : 's'}`}
+        </span>
+        <button
+          onClick={() => onApply(fmt, word, scopeFormats)}
+          disabled={!canApply}
+          className="h-[40px] flex-none rounded-[10px] bg-amber px-5 font-sans text-[14px] font-bold tracking-[-0.01em] text-amber-ink transition-[filter] hover:brightness-[1.07] disabled:cursor-default disabled:opacity-40 disabled:hover:brightness-100"
+        >
+          {busy
+            ? 'Renaming…'
+            : `Rename ${affected} photo${affected === 1 ? '' : 's'}`}
+        </button>
+      </div>
     </div>
   )
 }
