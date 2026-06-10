@@ -44,6 +44,10 @@ class OrganizeBody(BaseModel):
     action: str
 
 
+class TidyBody(BaseModel):
+    action: str
+
+
 class RenameBody(BaseModel):
     fmt: str
     word: str | None = None
@@ -139,6 +143,82 @@ def detect_finder_folders():
     return paths, error
 
 
+def _applescript_quote(path: str) -> str:
+    """Escape a POSIX path for embedding inside an AppleScript string literal."""
+    return path.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _finder_cleanup_script(folder: str) -> str:
+    """AppleScript: find the Finder window whose target is `folder` (opening it
+    if none exists), switch it to icon view, and clean up by name.
+
+    We compute the target URL from `POSIX file ... as alias` so it matches the
+    URL form Finder itself reports (symlinks resolved the same way, e.g.
+    /tmp -> /private/tmp). Windows are iterated by index inside try blocks: a
+    `repeat with w in (every Finder window)` loop var is a list specifier whose
+    `target of w` coercion can fail, which historically broke detection. The
+    script returns 'ok' / 'no-window' so Python can map the outcome.
+    """
+    p = _applescript_quote(folder)
+    return (
+        'tell application "Finder"\n'
+        f'set targetURL to URL of (POSIX file "{p}" as alias)\n'
+        "set theWin to missing value\n"
+        "repeat with i from 1 to (count of Finder windows)\n"
+        "try\n"
+        "if (URL of (target of Finder window i)) is targetURL then\n"
+        "set theWin to Finder window i\n"
+        "exit repeat\n"
+        "end if\n"
+        "end try\n"
+        "end repeat\n"
+        "if theWin is missing value then\n"
+        f'open (POSIX file "{p}" as alias)\n'
+        "delay 0.5\n"
+        "repeat with i from 1 to (count of Finder windows)\n"
+        "try\n"
+        "if (URL of (target of Finder window i)) is targetURL then\n"
+        "set theWin to Finder window i\n"
+        "exit repeat\n"
+        "end if\n"
+        "end try\n"
+        "end repeat\n"
+        "end if\n"
+        'if theWin is missing value then return "no-window"\n'
+        "set current view of theWin to icon view\n"
+        "clean up theWin by name\n"
+        'return "ok"\n'
+        "end tell"
+    )
+
+
+def _finder_arrange_script(folder: str, on: bool) -> str:
+    """AppleScript: set the folder's icon-view arrangement to 'arranged by name'
+    (keep on) or 'not arranged' (keep off). Operates on `window of folder ...`,
+    which resolves the folder's view options whether or not a window is open."""
+    p = _applescript_quote(folder)
+    value = "arranged by name" if on else "not arranged"
+    return (
+        'tell application "Finder"\n'
+        f"set arrangement of icon view options of window of folder "
+        f'(POSIX file "{p}" as alias) to {value}\n'
+        'return "ok"\n'
+        "end tell"
+    )
+
+
+def _finder_arrangement_read_script(folder: str) -> str:
+    """AppleScript: return the folder's current icon-view arrangement as text
+    (e.g. 'arranged by name', 'not arranged', 'snap to grid')."""
+    p = _applescript_quote(folder)
+    return (
+        'tell application "Finder"\n'
+        f"return (arrangement of icon view options of window of folder "
+        f'(POSIX file "{p}" as alias)) as text\n'
+        "end tell"
+    )
+
+
 def _photo_dict(idx, p) -> dict:
     return {
         "id": p.id,
@@ -197,6 +277,45 @@ def create_app(folder: str | None = None) -> FastAPI:
             ],
             "error": error,
         }
+
+    @app.post("/api/finder-tidy")
+    def finder_tidy(body: TidyBody):
+        folder = app.state.folder
+        if not folder:
+            raise HTTPException(status_code=400, detail="no active folder")
+        if body.action == "cleanup":
+            script = _finder_cleanup_script(folder)
+        elif body.action in ("keep_on", "keep_off"):
+            script = _finder_arrange_script(folder, on=body.action == "keep_on")
+        else:
+            raise HTTPException(status_code=400, detail="unknown action")
+        out, err = _run_osascript(script)
+        if err == "permission":
+            return {"ok": False, "error": "permission"}
+        result = (out or "").strip()
+        if result == "ok":
+            return {"ok": True}
+        if result == "no-window":
+            return {"ok": False, "error": "no-window"}
+        # Any other non-ok output is a script-level failure; surface it.
+        return {"ok": False, "error": result or "failed"}
+
+    @app.get("/api/finder-tidy")
+    def finder_tidy_status():
+        folder = app.state.folder
+        if not folder:
+            raise HTTPException(status_code=400, detail="no active folder")
+        out, err = _run_osascript(_finder_arrangement_read_script(folder))
+        if err == "permission":
+            return {"arranged": None, "error": "permission"}
+        result = (out or "").strip().lower()
+        if result in ("arranged by name", "snap to grid") or result.startswith(
+            "arranged"
+        ):
+            return {"arranged": True}
+        if result == "not arranged":
+            return {"arranged": False}
+        return {"arranged": None}
 
     @app.post("/api/open-folder")
     def open_folder(body: FolderBody):
