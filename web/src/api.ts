@@ -1,9 +1,13 @@
 import type {
   DuplicateGroup,
+  FinderArranged,
   FinderFoldersResponse,
+  FinderTidyResult,
   IndexStatus,
   Library,
   OrganizeResult,
+  RenameFmt,
+  RenamePreview,
 } from './types'
 
 /** Thrown for any non-2xx response; carries the HTTP status. */
@@ -75,4 +79,26 @@ export const api = {
 
   /** Reverse the last organize action; returns how many moves were undone. */
   undo: () => request<{ undone: number }>('/api/undo', { method: 'POST' }),
+
+  /** Dry-run a batch rename under `fmt` (`word` only used for 'custom').
+   *  Returns the total affected and up to 3 from→to examples; moves nothing.
+   *  Throws ApiError on 400 (bad fmt / empty word). */
+  renamePreview: (fmt: RenameFmt, word?: string) =>
+    request<RenamePreview>(
+      '/api/rename',
+      json({ fmt, word, dry_run: true }),
+    ),
+
+  /** Apply a batch rename under `fmt`; returns how many files were renamed.
+   *  Throws ApiError on 400 (bad fmt / empty word) or 409 (collision). */
+  renameApply: (fmt: RenameFmt, word?: string) =>
+    request<{ renamed: number }>('/api/rename', json({ fmt, word })),
+
+  /** Tidy the active folder's Finder window: snap icons to a grid
+   *  ('cleanup') or keep it arranged-by-name ('keep_on' / 'keep_off'). */
+  finderTidy: (action: 'cleanup' | 'keep_on' | 'keep_off') =>
+    request<FinderTidyResult>('/api/finder-tidy', json({ action })),
+
+  /** Whether the active folder's Finder window is kept arranged-by-name. */
+  finderArranged: () => request<FinderArranged>('/api/finder-tidy'),
 }

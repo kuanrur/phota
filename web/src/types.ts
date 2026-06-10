@@ -51,3 +51,25 @@ export interface OrganizeResult {
   moved?: number
   folders?: number
 }
+
+/** A naming scheme for the batch rename. */
+export type RenameFmt = 'date_number' | 'datetime' | 'number' | 'custom'
+
+/** Dry-run preview of a rename: total files affected + up to 3 examples. */
+export interface RenamePreview {
+  total: number
+  examples: { from: string; to: string }[]
+}
+
+/** Whether the active folder's Finder window is kept arranged-by-name.
+ *  `arranged` is null when macOS hasn't reported a known state. */
+export interface FinderArranged {
+  arranged: boolean | null
+  error?: string | null
+}
+
+/** Result of a Finder-tidy action (cleanup / keep_on / keep_off). */
+export interface FinderTidyResult {
+  ok: boolean
+  error?: string | null
+}
