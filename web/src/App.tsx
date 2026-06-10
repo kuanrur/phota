@@ -41,7 +41,7 @@ const EMPTY_STATUS: IndexStatus = {
 }
 
 /** Repeats beyond the single keeper in each group — the number "Set aside
- *  duplicates" would move into duplicates/. */
+ *  duplicates" would move into _duplicates/. */
 function extrasOf(groups: DuplicateGroup[]): number {
   return groups.reduce((sum, g) => sum + Math.max(g.ids.length - 1, 0), 0)
 }
@@ -823,7 +823,7 @@ function Controller({
           sub={
             <>
               moves repeats into{' '}
-              <code className="font-mono text-[11.5px]">duplicates/</code>, keeps
+              <code className="font-mono text-[11.5px]">_duplicates/</code>, keeps
               the sharpest
             </>
           }
