@@ -151,6 +151,47 @@ def test_rename_files_happy_path_and_undo_round_trip(tmp_path):
     assert (tmp_path / "a.jpg").read_text() == "B"
 
 
+def test_rename_files_case_only_undo_round_trip(tmp_path):
+    # A case-only rename (a.jpg -> A.jpg) records {from: a.jpg, to: A.jpg}. On a
+    # case-insensitive filesystem these are the SAME file, so undo must recognize
+    # the file's own 'to' slot across case and restore the exact original name
+    # rather than mistaking it for a foreign occupant.
+    a = tmp_path / "a.jpg"; a.write_text("A")
+    organize.rename_files(tmp_path, [(str(a), "A.jpg")])
+    assert (tmp_path / "A.jpg").read_text() == "A"
+    organize.undo_last(tmp_path)
+    restored = next(p for p in tmp_path.iterdir() if p.suffix == ".jpg")
+    assert restored.name == "a.jpg"  # exact original basename
+    assert restored.read_text() == "A"
+
+
+def test_rename_files_undo_refuses_foreign_clobber(tmp_path):
+    # The casefold fix to undo_last must not weaken foreign-clobber protection:
+    # after a.jpg -> B.jpg, a genuinely different file dropped at the original
+    # 'a.jpg' path must still block undo (no silent clobber).
+    a = tmp_path / "a.jpg"; a.write_text("A")
+    organize.rename_files(tmp_path, [(str(a), "B.jpg")])
+    foreign = tmp_path / "a.jpg"; foreign.write_text("FOREIGN")
+    with pytest.raises(FileExistsError):
+        organize.undo_last(tmp_path)
+    # Nothing moved; both files intact, manifest preserved for a later retry.
+    assert foreign.read_text() == "FOREIGN"
+    assert (tmp_path / "B.jpg").read_text() == "A"
+
+
+def test_rename_files_case_swap_undo_round_trip(tmp_path):
+    # Case-swap: a.jpg -> B.jpg and b.jpg -> A.jpg. Undo must restore the exact
+    # original basenames and contents.
+    a = tmp_path / "a.jpg"; a.write_text("A")
+    b = tmp_path / "b.jpg"; b.write_text("B")
+    organize.rename_files(tmp_path, [(str(a), "B.jpg"), (str(b), "A.jpg")])
+    assert (tmp_path / "A.jpg").read_text() == "B"
+    assert (tmp_path / "B.jpg").read_text() == "A"
+    organize.undo_last(tmp_path)
+    by_name = {p.name: p.read_text() for p in tmp_path.iterdir() if p.suffix == ".jpg"}
+    assert by_name == {"a.jpg": "A", "b.jpg": "B"}
+
+
 def test_rename_files_keeps_subfolder_files_in_place(tmp_path):
     sub = tmp_path / "sub"; sub.mkdir()
     x = sub / "x.jpg"; x.write_text("X")

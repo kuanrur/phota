@@ -209,12 +209,17 @@ def undo_last(folder):
     ops = json.loads(mp.read_text())['ops']
     # Only ops whose source still exists can be undone.
     live = [op for op in ops if Path(op['to']).exists()]
-    to_slots = {os.path.abspath(op['to']) for op in live}
+    # Case-fold the slot keys so a file recognizes its own 'to' slot across
+    # case on a case-insensitive filesystem (default macOS APFS): a case-only
+    # rename records {from: a.jpg, to: A.jpg} where both name the SAME file, so
+    # the abspath of 'from' must match its own 'to' slot or undo would mistake
+    # the file for a foreign occupant and refuse the whole batch.
+    to_slots = {os.path.normcase(os.path.abspath(op['to'])).casefold() for op in live}
     # Pre-pass: a 'from' target is a conflict only if it is occupied by
     # something that is not one of the slots we are about to vacate.
     for op in live:
         dst = Path(op['from'])
-        if dst.exists() and os.path.abspath(str(dst)) not in to_slots:
+        if dst.exists() and os.path.normcase(os.path.abspath(str(dst))).casefold() not in to_slots:
             raise FileExistsError(str(dst))
     # Phase 1: vacate every 'to' into a unique temp.
     temps = []
