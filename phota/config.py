@@ -85,3 +85,34 @@ IMAGE_EXTS = (
     | OTHER_RASTER_EXTS
     | VECTOR_EXTS
 )
+
+
+def format_label(path) -> str:
+    """Map a file path to a human folder label for its image format.
+
+    .jpg/.jpeg -> 'JPEG', HEIC -> 'HEIC', RAW -> 'RAW', .png -> 'PNG',
+    .webp -> 'WEBP', .gif -> 'GIF', .bmp -> 'BMP', TIFF -> 'TIFF', .svg -> 'SVG'.
+    Anything else maps to its uppercased extension without the dot, or 'OTHER'
+    when the file has no extension. Case-insensitive on the extension.
+    """
+    ext = Path(path).suffix.lower()
+    if ext in JPEG_EXTS:
+        return "JPEG"
+    if ext in HEIC_EXTS:
+        return "HEIC"
+    if ext in RAW_EXTS:
+        return "RAW"
+    if ext in TIFF_EXTS:
+        return "TIFF"
+    named = {
+        ".png": "PNG",
+        ".webp": "WEBP",
+        ".gif": "GIF",
+        ".bmp": "BMP",
+        ".svg": "SVG",
+    }
+    if ext in named:
+        return named[ext]
+    if not ext:
+        return "OTHER"
+    return ext[1:].upper()

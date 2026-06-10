@@ -52,6 +52,7 @@ class RenameBody(BaseModel):
     fmt: str
     word: str | None = None
     dry_run: bool = False
+    formats: list[str] | None = None
 
 
 def reveal_in_finder(path):
@@ -368,15 +369,21 @@ def create_app(folder: str | None = None) -> FastAPI:
 
     @app.get("/api/library")
     def library():
+        from phota.config import format_label
+
         idx = _index()
         ph = idx.all_photos()
         s = summarize_photos(ph)
+        formats: dict[str, int] = defaultdict(int)
+        for p in ph:
+            formats[format_label(p.path)] += 1
         return {
             "folder": app.state.folder,
             "count": s["count"],
             "cameras": s["cameras"],
             "date_range": s["date_range"],
             "series": s["series"],
+            "formats": dict(formats),
         }
 
     @app.get("/api/photos")
@@ -626,9 +633,28 @@ def create_app(folder: str | None = None) -> FastAPI:
         _rebuild()
         return {"undone": n}
 
+    def _group(folder, labelled):
+        """Group (label, src) pairs into folder/<label>/, skipping any photo
+        already living directly in its destination folder so a re-run is a
+        no-op (returns moved 0) rather than a 409. ``labelled`` is a list of
+        (label, src_abspath)."""
+        from phota import organize
+
+        folder_path = Path(folder)
+        assignments = [
+            (label, src)
+            for label, src in labelled
+            if Path(src).parent.resolve()
+            != (folder_path / organize._safe_name(label)).resolve()
+        ]
+        if not assignments:
+            return 0, []
+        return organize.group_into_folders(folder, assignments)
+
     @app.post("/api/organize")
     def organize_action(body: OrganizeBody):
         from phota import dedupe, organize
+        from phota.config import format_label
 
         if not app.state.folder:
             raise HTTPException(status_code=400, detail="no active folder")
@@ -643,14 +669,18 @@ def create_app(folder: str | None = None) -> FastAPI:
                 n = organize.apply_order(folder, [p.path for p in ordered])
                 result = {"action": action, "renamed": n}
             elif action == "by_day":
-                assignments = [
+                labelled = [
                     ((p.captured_at or "undated")[:10], p.path) for p in photos
                 ]
-                n, folders = organize.group_into_folders(folder, assignments)
+                n, folders = _group(folder, labelled)
                 result = {"action": action, "moved": n, "folders": folders}
             elif action == "by_camera":
-                assignments = [((p.camera or "Unknown"), p.path) for p in photos]
-                n, folders = organize.group_into_folders(folder, assignments)
+                labelled = [((p.camera or "Unknown"), p.path) for p in photos]
+                n, folders = _group(folder, labelled)
+                result = {"action": action, "moved": n, "folders": folders}
+            elif action == "by_format":
+                labelled = [(format_label(p.path), p.path) for p in photos]
+                n, folders = _group(folder, labelled)
                 result = {"action": action, "moved": n, "folders": folders}
             elif action == "duplicates":
                 groups = dedupe.find_duplicate_groups(idx)
@@ -676,12 +706,18 @@ def create_app(folder: str | None = None) -> FastAPI:
     @app.post("/api/rename")
     def rename(body: RenameBody):
         from phota import organize
+        from phota.config import format_label
         from phota.rename import plan_renames
 
         if not app.state.folder:
             raise HTTPException(status_code=400, detail="no active folder")
         _guard_indexing()
         photos = _index().all_photos()
+        if body.formats is not None:
+            if not body.formats:
+                raise HTTPException(status_code=400, detail="no formats selected")
+            wanted = set(body.formats)
+            photos = [p for p in photos if format_label(p.path) in wanted]
         try:
             plan = plan_renames(photos, body.fmt, body.word)
         except ValueError as e:

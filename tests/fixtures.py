@@ -50,6 +50,23 @@ def make_jpeg(
     return path
 
 
+def make_png(path: Path) -> Path:
+    """A minimal PNG so the scanner indexes it as a non-JPEG raster format."""
+    img = Image.fromarray(_sharp_array(), mode="RGB")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(path, "png")
+    return path
+
+
+def make_svg(path: Path) -> Path:
+    """A minimal SVG (text) so the scanner indexes it as a vector format."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>'
+    )
+    return path
+
+
 def _decimal_to_dms(value: float) -> list[tuple[int, int]]:
     degrees = int(value)
     minutes_float = (value - degrees) * 60

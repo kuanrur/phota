@@ -3,7 +3,8 @@ from dataclasses import dataclass
 import pytest
 
 from phota import organize
-from phota.rename import plan_renames
+from phota.config import format_label
+from phota.rename import plan_renames, safe_word
 
 
 @dataclass
@@ -131,6 +132,82 @@ def test_plan_unknown_fmt_raises(tmp_path):
     a = _photo(str(tmp_path / "a.jpg"), "2025-08-07T08:00:00")
     with pytest.raises(ValueError):
         plan_renames([a], "bogus")
+
+
+# ---------------------------------------------------------------------------
+# safe_word -- emoji-safe custom rename sanitizer
+# ---------------------------------------------------------------------------
+
+def test_safe_word_passes_emoji_cjk_accents():
+    assert safe_word("🌊") == "🌊"
+    assert safe_word("海") == "海"
+    assert safe_word("café") == "café"
+    assert safe_word("Tōkyō 旅行 🗼") == "Tōkyō 旅行 🗼"
+
+
+def test_safe_word_strips_slash_colon_control_and_leading_dots():
+    # POSIX/Finder-illegal chars removed.
+    assert safe_word("a/b:c") == "abc"
+    # Control chars (newline, tab, null) removed.
+    assert safe_word("a\nb\tc\x00") == "abc"
+    # Leading dots stripped (no hidden files); surrounding whitespace stripped.
+    assert safe_word("  ..hidden  ") == "hidden"
+    # A leading dot then an emoji.
+    assert safe_word(".🌊") == "🌊"
+
+
+def test_safe_word_empty_or_illegal_only_raises():
+    with pytest.raises(ValueError):
+        safe_word("")
+    with pytest.raises(ValueError):
+        safe_word("   ")
+    with pytest.raises(ValueError):
+        safe_word("///")
+    with pytest.raises(ValueError):
+        safe_word("...")
+
+
+def test_plan_custom_emoji_word(tmp_path):
+    a = _photo(str(tmp_path / "a.jpg"), "2025-08-07T08:00:00")
+    plan = plan_renames([a], "custom", word="🌊")
+    assert plan == [(str(tmp_path / "a.jpg"), "🌊_001.jpg")]
+
+
+# ---------------------------------------------------------------------------
+# format_label -- extension -> human folder label
+# ---------------------------------------------------------------------------
+
+def test_format_label_mapping(tmp_path):
+    assert format_label("a.jpg") == "JPEG"
+    assert format_label("a.jpeg") == "JPEG"
+    assert format_label("a.heic") == "HEIC"
+    assert format_label("a.heif") == "HEIC"
+    assert format_label("a.cr3") == "RAW"
+    assert format_label("a.nef") == "RAW"
+    assert format_label("a.png") == "PNG"
+    assert format_label("a.webp") == "WEBP"
+    assert format_label("a.gif") == "GIF"
+    assert format_label("a.bmp") == "BMP"
+    assert format_label("a.tif") == "TIFF"
+    assert format_label("a.tiff") == "TIFF"
+    assert format_label("a.svg") == "SVG"
+
+
+def test_format_label_case_insensitive(tmp_path):
+    assert format_label("a.JPG") == "JPEG"
+    assert format_label("a.JPEG") == "JPEG"
+    assert format_label("a.Png") == "PNG"
+    assert format_label("a.HEIC") == "HEIC"
+
+
+def test_format_label_unknown_ext_uppercased():
+    assert format_label("a.xyz") == "XYZ"
+    assert format_label("a.psd") == "PSD"
+
+
+def test_format_label_no_ext_is_other():
+    assert format_label("README") == "OTHER"
+    assert format_label("/some/dir/noext") == "OTHER"
 
 
 # ---------------------------------------------------------------------------

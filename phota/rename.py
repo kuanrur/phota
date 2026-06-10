@@ -4,9 +4,28 @@
 ``(abs_src_path, new_basename)`` pairs. The caller (``organize.rename_files``)
 performs the actual two-phase, reversible moves.
 """
+import unicodedata
 from pathlib import Path
 
-from phota.organize import _safe_name
+
+def safe_word(word) -> str:
+    """Sanitize a custom rename word permissively, preserving unicode.
+
+    NFC-normalizes, drops unicode control chars (category starting with 'C'),
+    removes '/' and ':' (POSIX/Finder-illegal in a basename), strips surrounding
+    whitespace and leading dots (so no hidden files). Emoji, CJK and accented
+    characters all pass through. Raises ValueError if nothing survives.
+    """
+    word = unicodedata.normalize("NFC", word or "")
+    word = "".join(
+        ch
+        for ch in word
+        if not unicodedata.category(ch).startswith("C") and ch not in "/:"
+    )
+    word = word.strip().lstrip(".").strip()
+    if not word:
+        raise ValueError("custom rename requires a non-empty word")
+    return word
 
 
 def plan_renames(photos, fmt, word=None):
@@ -26,17 +45,9 @@ def plan_renames(photos, fmt, word=None):
         pad = max(3, len(str(total)))
         new_names = [str(i).zfill(pad) for i in range(1, total + 1)]
     elif fmt == "custom":
-        # _safe_name falls back to 'untitled' when sanitization yields nothing,
-        # so check the raw sanitized chars to detect a word that's missing or
-        # empty after sanitize.
-        sanitized = (
-            "".join(ch for ch in word if ch.isalnum() or ch in " _-").strip()
-            if word
-            else ""
-        )
-        if not sanitized:
-            raise ValueError("custom rename requires a non-empty word")
-        safe = _safe_name(word)
+        # safe_word raises ValueError when the word is missing or sanitizes to
+        # nothing; emoji/CJK/accents pass through unchanged.
+        safe = safe_word(word)
         pad = max(3, len(str(total)))
         new_names = [f"{safe}_{str(i).zfill(pad)}" for i in range(1, total + 1)]
     elif fmt == "date_number":
